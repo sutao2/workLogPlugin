@@ -1,0 +1,114 @@
+<idea-plugin>
+    <id>com.worklog</id>
+    <name>WorkLog</name>
+    <vendor email="support@worklog.com" url="https://github.com/yourusername/workLogPlugin">WorkLog Plugin</vendor>
+
+    <description><![CDATA[
+    <h1>工作日志插件</h1>
+    <p>一款功能强大的工作日志管理插件，帮助开发者记录每日工作内容。</p>
+
+    <h2>主要功能</h2>
+    <ul>
+      <li>✅ 自动获取指定日期的 Git 提交信息</li>
+      <li>✅ 支持调用大模型 API（OpenAI 格式或自定义格式）自动总结工作内容</li>
+      <li>✅ 可配置是否允许读取代码内容（严格权限控制）</li>
+      <li>✅ 支持 Markdown 格式编辑和存储</li>
+      <li>✅ IDE 关闭时自动提醒填写工作日志</li>
+      <li>✅ 历史日志查看和搜索</li>
+      <li>✅ 定时提醒功能</li>
+      <li>✅ 导出为 HTML/PDF 格式</li>
+    </ul>
+
+    <h2>使用方法</h2>
+    <ol>
+      <li>打开右侧工具栏的 "WorkLog" 面板</li>
+      <li>选择日期，点击"生成日志"按钮</li>
+      <li>编辑日志内容后保存</li>
+      <li>在设置中配置 AI API（可选）</li>
+    </ol>
+    ]]></description>
+
+    <!-- Product and plugin compatibility requirements.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.vcs</depends>
+    <depends>Git4Idea</depends>
+
+    <!-- Extension points defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Tool Window -->
+        <toolWindow id="WorkLog"
+                    factoryClass="com.worklog.ui.WorkLogToolWindowFactory"
+                    anchor="right"
+                    icon="AllIcons.General.Modified"/>
+
+        <!-- Project Close Handler -->
+        <projectCloseHandler implementation="com.worklog.listeners.ProjectCloseListener"/>
+
+        <!-- Settings -->
+        <applicationService serviceImplementation="com.worklog.settings.AppSettingsState"/>
+        <projectConfigurable parentId="tools"
+                           instance="com.worklog.settings.SettingsConfigurable"
+                           id="com.worklog.settings.SettingsConfigurable"
+                           displayName="WorkLog"/>
+
+        <!-- Project Services -->
+        <projectService serviceImplementation="com.worklog.services.GitService"/>
+        <projectService serviceImplementation="com.worklog.services.WorkLogService"/>
+        <projectService serviceImplementation="com.worklog.services.AIService"/>
+        <projectService serviceImplementation="com.worklog.services.ReminderService"/>
+        <projectService serviceImplementation="com.worklog.services.StatisticsService"/>
+    </extensions>
+
+    <applicationListeners>
+        <!-- IDE Shutdown Listener -->
+        <listener class="com.worklog.listeners.AppCloseListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
+
+    <actions>
+        <!-- Main Actions -->
+        <action id="com.worklog.actions.GenerateWorkLogAction"
+                class="com.worklog.actions.GenerateWorkLogAction"
+                text="生成工作日志"
+                description="生成今日工作日志">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="com.worklog.actions.ViewHistoryAction"
+                class="com.worklog.actions.ViewHistoryAction"
+                text="查看历史日志"
+                description="查看历史工作日志">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="com.worklog.actions.ViewStatisticsAction"
+                class="com.worklog.actions.ViewStatisticsAction"
+                text="工作统计"
+                description="查看工作统计信息">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="com.worklog.actions.GenerateWeeklyReportAction"
+                class="com.worklog.actions.GenerateWeeklyReportAction"
+                text="生成周报"
+                description="生成本周工作周报">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="com.worklog.actions.GenerateMonthlyReportAction"
+                class="com.worklog.actions.GenerateMonthlyReportAction"
+                text="生成月报"
+                description="生成本月工作月报">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="com.worklog.actions.GenerateYearlyReportAction"
+                class="com.worklog.actions.GenerateYearlyReportAction"
+                text="生成年报"
+                description="生成年度工作总结报告">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

@@ -1,0 +1,122 @@
+package com.worklog.services
+
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
+import com.intellij.notification.Notifications
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.project.Project
+import com.worklog.settings.AppSettingsState
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.util.*
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
+/**
+ * 提醒服务
+ * 负责定时提醒用户填写工作日志
+ */
+@Service(Service.Level.PROJECT)
+class ReminderService(private val project: Project) {
+
+    private var scheduler: ScheduledExecutorService? = null
+    private var reminderTask: TimerTask? = null
+
+    private val workLogService: WorkLogService
+        get() = project.getService(WorkLogService::class.java)
+
+    /**
+     * 启动定时提醒
+     */
+    fun start() {
+        stop()  // 先停止之前的任务
+
+        val settings = AppSettingsState.getInstance()
+        if (!settings.reminderEnabled) {
+            return
+        }
+
+        scheduler = Executors.newScheduledThreadPool(1)
+        scheduleNextReminder()
+    }
+
+    /**
+     * 停止定时提醒
+     */
+    fun stop() {
+        reminderTask?.cancel()
+        reminderTask = null
+        scheduler?.shutdown()
+        scheduler = null
+    }
+
+    /**
+     * 调度下一次提醒
+     */
+    private fun scheduleNextReminder() {
+        val settings = AppSettingsState.getInstance()
+        val reminderTime = settings.getReminderLocalTime()
+
+        val now = LocalDateTime.now()
+        var nextReminder = LocalDateTime.of(LocalDate.now(), reminderTime)
+
+        // 如果今天的提醒时间已过，调度到明天
+        if (nextReminder.isBefore(now)) {
+            nextReminder = nextReminder.plusDays(1)
+        }
+
+        val delay = java.time.Duration.between(now, nextReminder).toMillis()
+
+        scheduler?.schedule({
+            showReminder()
+            // 调度下一次提醒（24小时后）
+            scheduleNextReminder()
+        }, delay, TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * 显示提醒通知
+     */
+    fun showReminder() {
+        val today = LocalDate.now()
+
+        // 检查今日是否已有日志
+        if (workLogService.hasTodayWorkLog()) {
+            return  // 已有日志，不再提醒
+        }
+
+        val notification = Notification(
+            "WorkLog.Notification",
+            "工作日志提醒",
+            "今日工作日志尚未填写，点击此处快速生成。",
+            NotificationType.INFORMATION
+        )
+
+        notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("立即生成") {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                // 触发生成日志的操作
+                notification.expire()
+                com.intellij.openapi.actionSystem.ActionManager.getInstance()
+                    .getAction("com.worklog.actions.GenerateWorkLogAction")
+                    ?.actionPerformed(e)
+            }
+        })
+
+        notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("稍后提醒") {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                notification.expire()
+            }
+        })
+
+        Notifications.Bus.notify(notification, project)
+    }
+
+    /**
+     * 重新启动提醒（当设置更改时调用）
+     */
+    fun restart() {
+        start()
+    }
+}
