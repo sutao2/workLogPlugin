@@ -1,23 +1,39 @@
 <idea-plugin>
     <id>com.worklog</id>
     <name>WorkLog</name>
-    <vendor email="support@worklog.com" url="https://github.com/yourusername/workLogPlugin">WorkLog Plugin</vendor>
+    <vendor email="sutao@linux.do" url="https://github.com/sutao1/workLogPlugin">WorkLog Plugin</vendor>
 
     <description><![CDATA[
     <h1>工作日志插件</h1>
     <p>一款功能强大的工作日志管理插件，帮助开发者记录每日工作内容。</p>
 
+    <br/>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/main-interface.png"
+         alt="主界面截图" width="600" border="0"/>
+    <br/><br/>
+
     <h2>主要功能</h2>
     <ul>
-      <li>✅ 自动获取指定日期的 Git 提交信息</li>
-      <li>✅ 支持调用大模型 API（OpenAI 格式或自定义格式）自动总结工作内容</li>
-      <li>✅ 可配置是否允许读取代码内容（严格权限控制）</li>
-      <li>✅ 支持 Markdown 格式编辑和存储</li>
-      <li>✅ IDE 关闭时自动提醒填写工作日志</li>
-      <li>✅ 历史日志查看和搜索</li>
-      <li>✅ 定时提醒功能</li>
-      <li>✅ 导出为 HTML/PDF 格式</li>
+      <li> 自动获取指定日期的 Git 提交信息</li>
+      <li> 支持调用大模型 API（OpenAI 格式或自定义格式）自动总结工作内容</li>
+      <li> 可配置是否允许读取代码内容（严格权限控制）</li>
+      <li> 支持 Markdown 格式编辑和存储</li>
+      <li> IDE 关闭时自动提醒填写工作日志</li>
+      <li> 历史日志查看和搜索</li>
+      <li> 定时提醒功能</li>
+      <li> 导出为 HTML/PDF 格式</li>
     </ul>
+
+    <h2>功能演示</h2>
+    <h3>1. AI 智能总结</h3>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/ai-summary.png"
+         alt="AI智能总结" width="600" border="0"/>
+    <br/><br/>
+
+    <h3>2. 多 API 配置管理</h3>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/api-config.png"
+         alt="API配置管理" width="600" border="0"/>
+    <br/><br/>
 
     <h2>使用方法</h2>
     <ol>
@@ -41,7 +57,7 @@
         <toolWindow id="WorkLog"
                     factoryClass="com.worklog.ui.WorkLogToolWindowFactory"
                     anchor="right"
-                    icon="AllIcons.General.Modified"/>
+                    icon="com.worklog.icons.WorkLogIcons.ToolWindow"/>
 
         <!-- Project Close Handler -->
         <projectCloseHandler implementation="com.worklog.listeners.ProjectCloseListener"/>

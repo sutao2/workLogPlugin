@@ -123,50 +123,47 @@ object MarkdownUtil {
         aiSummary: String? = null,
         includeCodeDiff: Boolean = false
     ): String {
-        val sb = StringBuilder()
+        val settings = com.worklog.settings.AppSettingsState.getInstance()
+        var template = settings.workLogOutputTemplate
 
-        // 标题
-        sb.appendLine("# 工作日志 - ${workLog.date.format(DATE_FORMATTER)}")
-        sb.appendLine()
+        // 替换日期
+        val dateStr = workLog.date.format(DATE_FORMATTER)
+        template = template.replace("{{date}}", dateStr)
 
-        // AI 总结（如果有）
+        // 替换AI总结
         if (!aiSummary.isNullOrBlank()) {
-            sb.appendLine("## 🤖 AI 工作总结")
-            sb.appendLine()
-            sb.appendLine(aiSummary.trim())
-            sb.appendLine()
-            sb.appendLine()
+            // 清理AI输出中可能包含的思考过程标签
+            var cleanedSummary = aiSummary.trim()
+            cleanedSummary = cleanedSummary.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
+            cleanedSummary = cleanedSummary.replace(Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL), "")
+            cleanedSummary = cleanedSummary.trim()
+
+            template = template.replace("{{ai_summary}}", cleanedSummary)
+        } else {
+            template = template.replace("{{ai_summary}}", "<!-- 无AI总结 -->")
         }
 
-        // Git 提交记录
-        if (workLog.gitCommits.isNotEmpty()) {
-            sb.append(formatGitCommits(workLog.gitCommits))
-            sb.appendLine()
+        // 替换Git提交记录
+        val gitCommitsStr = if (workLog.gitCommits.isNotEmpty()) {
+            formatGitCommits(workLog.gitCommits)
+        } else {
+            "今日无 Git 提交记录。"
         }
+        template = template.replace("{{git_commits}}", gitCommitsStr)
 
-        // 代码差异（如果用户允许）
+        // 处理代码变更部分（条件模板）
         if (includeCodeDiff && workLog.hasCodeAccess) {
             val codeDiff = formatCodeDiff(workLog.gitCommits, includeFullDiff = false)
-            if (codeDiff.isNotBlank()) {
-                sb.append(codeDiff)
-                sb.appendLine()
+            template = template.replace(Regex("\\{\\{#if hasCodeAccess}}([\\s\\S]*?)\\{\\{/if}}")) { matchResult ->
+                val content = matchResult.groupValues[1]
+                content.replace("{{code_changes}}", if (codeDiff.isNotBlank()) codeDiff else "无代码变更")
             }
-        }
-
-        // 用户自定义内容
-        if (workLog.content.isNotBlank()) {
-            sb.appendLine("## 📝 详细内容")
-            sb.appendLine()
-            sb.appendLine(workLog.content)
-            sb.appendLine()
         } else {
-            sb.appendLine("## 📝 详细内容")
-            sb.appendLine()
-            sb.appendLine("<!-- 在这里填写详细的工作内容 -->")
-            sb.appendLine()
+            // 移除条件块
+            template = template.replace(Regex("\\{\\{#if hasCodeAccess}}[\\s\\S]*?\\{\\{/if}}"), "")
         }
 
-        return sb.toString()
+        return template.trim()
     }
 
     /**

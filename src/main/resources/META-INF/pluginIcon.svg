@@ -1,0 +1,20 @@
+<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect width="40" height="40" rx="8" fill="#4A90E2"/>
+
+  <!-- 笔记本图标 -->
+  <rect x="10" y="8" width="20" height="24" rx="2" fill="white"/>
+
+  <!-- 笔记本线条 -->
+  <line x1="13" y1="14" x2="27" y2="14" stroke="#4A90E2" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="13" y1="18" x2="27" y2="18" stroke="#4A90E2" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="13" y1="22" x2="24" y2="22" stroke="#4A90E2" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="13" y1="26" x2="21" y2="26" stroke="#4A90E2" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- 铅笔图标 -->
+  <g transform="translate(24, 24)">
+    <path d="M 0 6 L 6 0 L 9 3 L 3 9 Z" fill="#FFB84D"/>
+    <path d="M 0 6 L 3 9 L 0 10 Z" fill="#FF9500"/>
+    <rect x="5.5" y="-1" width="1.5" height="4" transform="rotate(45 6.25 1)" fill="#E8E8E8"/>
+  </g>
+</svg>

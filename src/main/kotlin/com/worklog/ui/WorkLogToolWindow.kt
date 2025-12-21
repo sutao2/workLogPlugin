@@ -1,18 +1,20 @@
 package com.worklog.ui
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.worklog.models.ExportFormat
 import com.worklog.services.WorkLogService
 import com.worklog.settings.AppSettingsState
-import com.worklog.utils.ExportUtil
 import com.worklog.utils.StorageUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
@@ -54,55 +56,90 @@ class WorkLogToolWindow(private val project: Project) {
     }
 
     private fun createToolbar(): JPanel {
-        val toolbar = JPanel(GridBagLayout())
-        val gbc = GridBagConstraints()
-        gbc.fill = GridBagConstraints.HORIZONTAL
-        gbc.insets = Insets(2, 2, 2, 2)
+        val toolbar = JPanel(BorderLayout())
 
-        // 第一行
-        gbc.gridx = 0
-        gbc.gridy = 0
-        gbc.weightx = 0.0
-        toolbar.add(JBLabel("日期:"), gbc)
+        // 左侧面板 - 主要操作按钮
+        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 2))
 
-        gbc.gridx = 1
-        gbc.weightx = 1.0
+        // 日期标签
+        leftPanel.add(JBLabel("日期:"))
+
+        // 日期下拉框（可编辑，点击可弹出日期选择器）
+        dateComboBox.preferredSize = Dimension(150, dateComboBox.preferredSize.height)
+        dateComboBox.isEditable = true
         dateComboBox.addActionListener { loadWorkLog() }
-        // 创建日期选择面板，包含下拉框和选择按钮
-        val datePanel = JPanel(BorderLayout(2, 0))
-        datePanel.add(dateComboBox, BorderLayout.CENTER)
-        val selectDateBtn = JButton("...")
-        selectDateBtn.toolTipText = "选择其他日期"
-        selectDateBtn.preferredSize = Dimension(30, selectDateBtn.preferredSize.height)
-        selectDateBtn.margin = Insets(2, 2, 2, 2)
-        selectDateBtn.addActionListener { showDatePicker() }
-        datePanel.add(selectDateBtn, BorderLayout.EAST)
-        toolbar.add(datePanel, gbc)
 
-        gbc.gridx = 2
-        gbc.weightx = 0.0
-        toolbar.add(createButton("生成日志") { showGenerateDialog() }, gbc)
+        // 添加鼠标点击监听，双击弹出日期选择器
+        dateComboBox.editor.editorComponent.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                if (e.clickCount == 2) {
+                    showDatePicker()
+                }
+            }
+        })
 
-        gbc.gridx = 3
-        toolbar.add(createButton("保存") { saveWorkLog() }, gbc)
+        leftPanel.add(dateComboBox)
 
-        gbc.gridx = 4
-        toolbar.add(createButton("复制") { copyWorkLog() }, gbc)
+        // 分隔符
+        leftPanel.add(Box.createHorizontalStrut(5))
 
-        // 第二行
-        gbc.gridx = 0
-        gbc.gridy = 1
-        gbc.gridwidth = 1
-        toolbar.add(createButton("历史记录") { showHistoryDialog() }, gbc)
+        // 生成日志按钮
+        leftPanel.add(createButton("生成日志") { showGenerateDialog() })
 
-        gbc.gridx = 1
-        toolbar.add(createButton("导出") { exportWorkLog() }, gbc)
+        // 保存按钮
+        leftPanel.add(createButton("保存") { saveWorkLog() })
 
-        gbc.gridx = 2
-        toolbar.add(createButton("统计") { showStatistics() }, gbc)
+        // 复制按钮
+        leftPanel.add(createButton("复制") { copyWorkLog() })
 
-        gbc.gridx = 3
-        toolbar.add(createButton("快速插入") { showQuickInsertMenu() }, gbc)
+        toolbar.add(leftPanel, BorderLayout.WEST)
+
+        // 右侧面板 - 设置和更多按钮
+        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 2))
+
+        // 设置按钮（使用 IDEA 标准齿轮图标）
+        val settingsButton = JButton(AllIcons.General.Settings)
+        settingsButton.toolTipText = "设置"
+        settingsButton.isBorderPainted = false
+        settingsButton.isContentAreaFilled = false
+        settingsButton.isFocusPainted = false
+        settingsButton.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        settingsButton.preferredSize = Dimension(28, 28)
+        settingsButton.addActionListener { openSettings() }
+
+        // 添加鼠标悬停效果
+        settingsButton.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseEntered(e: java.awt.event.MouseEvent) {
+                settingsButton.isContentAreaFilled = true
+            }
+            override fun mouseExited(e: java.awt.event.MouseEvent) {
+                settingsButton.isContentAreaFilled = false
+            }
+        })
+        rightPanel.add(settingsButton)
+
+        // 更多操作按钮（使用 IDEA 标准三点图标）
+        val moreButton = JButton(AllIcons.Actions.More)
+        moreButton.toolTipText = "更多操作"
+        moreButton.isBorderPainted = false
+        moreButton.isContentAreaFilled = false
+        moreButton.isFocusPainted = false
+        moreButton.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        moreButton.preferredSize = Dimension(28, 28)
+        moreButton.addActionListener { showMoreMenu(moreButton) }
+
+        // 添加鼠标悬停效果
+        moreButton.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseEntered(e: java.awt.event.MouseEvent) {
+                moreButton.isContentAreaFilled = true
+            }
+            override fun mouseExited(e: java.awt.event.MouseEvent) {
+                moreButton.isContentAreaFilled = false
+            }
+        })
+        rightPanel.add(moreButton)
+
+        toolbar.add(rightPanel, BorderLayout.EAST)
 
         return toolbar
     }
@@ -111,6 +148,46 @@ class WorkLogToolWindow(private val project: Project) {
         val button = JButton(text)
         button.addActionListener { action() }
         return button
+    }
+
+    /**
+     * 打开插件设置页面
+     */
+    private fun openSettings() {
+        val settingsDialog = com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+        settingsDialog.showSettingsDialog(project, "WorkLog")
+    }
+
+    /**
+     * 显示更多操作菜单（IDEA 标准样式）
+     */
+    private fun showMoreMenu(button: JButton) {
+        // 创建 Action Group
+        val actionGroup = DefaultActionGroup().apply {
+            add(object : AnAction("历史记录", "查看历史工作日志", AllIcons.Vcs.History) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    showHistoryDialog()
+                }
+            })
+            add(object : AnAction("统计报告", "查看工作日志统计", AllIcons.Toolwindows.ToolWindowStructure) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    showStatistics()
+                }
+            })
+        }
+
+        // 使用 JBPopupFactory 创建 IDEA 风格的弹出菜单
+        val popup = JBPopupFactory.getInstance()
+            .createActionGroupPopup(
+                null,  // 不显示标题
+                actionGroup,
+                DataContext.EMPTY_CONTEXT,
+                JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+                true
+            )
+
+        // 在按钮下方显示
+        popup.showUnderneathOf(button)
     }
 
     private fun createEditorPanel(): JPanel {
@@ -149,34 +226,6 @@ class WorkLogToolWindow(private val project: Project) {
     private fun updateWordCount() {
         val text = editorArea.text ?: ""
         wordCountLabel.text = "字数: ${text.length} | 行数: ${text.split("\n").size}"
-    }
-
-    private fun showQuickInsertMenu() {
-        val popup = JPopupMenu()
-
-        val templates = mapOf(
-            "任务项" to "- [ ] ",
-            "完成项" to "- [x] ",
-            "重要提示" to "> **重要**: ",
-            "Bug修复" to "修复: ",
-            "新功能" to "新增: ",
-            "优化" to "优化: ",
-            "学习笔记" to "### 学习笔记\n\n",
-            "今日目标" to "### 今日目标\n\n",
-            "明日计划" to "### 明日计划\n\n"
-        )
-
-        templates.forEach { (name, template) ->
-            val item = JMenuItem(name)
-            item.addActionListener {
-                editorArea.insert(template, editorArea.caretPosition)
-                editorArea.requestFocus()
-            }
-            popup.add(item)
-        }
-
-        val component = panel.components.firstOrNull { it is JButton } as? JButton
-        component?.let { popup.show(it, 0, it.height) }
     }
 
     private fun loadAvailableDates() {
@@ -280,40 +329,137 @@ class WorkLogToolWindow(private val project: Project) {
 
         scope.launch {
             try {
-                val workLog = workLogService.createWorkLog(date, includeCode)
+                // Git操作必须在后台线程执行
+                statusLabel.text = "正在获取Git提交记录..."
+                val workLog = withContext(Dispatchers.IO) {
+                    workLogService.createWorkLog(date, includeCode)
+                }
+
+                // 显示找到的提交数量
+                val commitCount = workLog.gitCommits.size
+                statusLabel.text = "找到 $commitCount 个提交记录"
+
+                if (commitCount == 0) {
+                    // 没有提交记录
+                    JOptionPane.showMessageDialog(
+                        panel,
+                        "在 $date 没有找到Git提交记录。\n将生成空白日志模板。",
+                        "提示",
+                        JOptionPane.INFORMATION_MESSAGE
+                    )
+                }
+
                 val settings = AppSettingsState.getInstance()
 
-                val aiSummary = if (settings.apiKey.isNotBlank() && workLog.gitCommits.isNotEmpty()) {
+                // 检查是否需要调用AI
+                val shouldCallAI = settings.apiUrlCompat.isNotBlank() &&
+                                  settings.apiKeyCompat.isNotBlank() &&
+                                  workLog.gitCommits.isNotEmpty()
+
+                val aiSummary = if (shouldCallAI) {
                     try {
-                        val aiService = project.getService(com.worklog.services.AIService::class.java)
-                        statusLabel.text = "正在调用 AI..."
-                        aiService.summarizeWork(workLog.gitCommits, includeCode)
+                        statusLabel.text = "正在调用 AI（提交数：$commitCount）..."
+                        // AI调用也在后台线程
+                        val summary = withContext(Dispatchers.IO) {
+                            val aiService = project.getService(com.worklog.services.AIService::class.java)
+                            aiService.summarizeWork(workLog.gitCommits, includeCode)
+                        }
+                        statusLabel.text = "AI 生成完成（字数：${summary.length}）"
+
+                        if (summary.isBlank()) {
+                            JOptionPane.showMessageDialog(
+                                panel,
+                                "AI 返回的内容为空。\n将使用基础日志格式。",
+                                "警告",
+                                JOptionPane.WARNING_MESSAGE
+                            )
+                            null
+                        } else {
+                            summary
+                        }
                     } catch (e: Exception) {
-                        statusLabel.text = "AI 调用失败: ${e.message}"
+                        val errorMsg = "AI 调用失败: ${e.message}"
+                        statusLabel.text = errorMsg
+
+                        // 显示详细错误信息
+                        JOptionPane.showMessageDialog(
+                            panel,
+                            "AI 生成失败，将使用基础日志格式。\n\n错误信息：\n${e.message}\n\n" +
+                            "请检查：\n" +
+                            "1. API URL 和 API Key 是否正确配置\n" +
+                            "2. 网络连接是否正常\n" +
+                            "3. 可以在设置页面使用\"测试 AI 连接\"功能验证配置",
+                            "AI 调用失败",
+                            JOptionPane.WARNING_MESSAGE
+                        )
                         null
                     }
-                } else null
+                } else {
+                    if (settings.apiUrlCompat.isBlank() || settings.apiKeyCompat.isBlank()) {
+                        statusLabel.text = "未配置 AI（将使用基础日志）"
+                    } else if (workLog.gitCommits.isEmpty()) {
+                        statusLabel.text = "无提交记录（将使用基础日志）"
+                    }
+                    null
+                }
 
-                val fullContent = com.worklog.utils.MarkdownUtil.generateFullWorkLog(
-                    workLog = workLog,
-                    aiSummary = aiSummary,
-                    includeCodeDiff = includeCode
-                )
+                // 在后台线程生成和保存内容
+                statusLabel.text = "正在生成日志内容..."
+                withContext(Dispatchers.IO) {
+                    // 清空模板内容，避免重复添加
+                    workLog.content = ""
 
-                workLog.content = fullContent
-                workLogService.saveWorkLog(workLog)
+                    val fullContent = com.worklog.utils.MarkdownUtil.generateFullWorkLog(
+                        workLog = workLog,
+                        aiSummary = aiSummary,
+                        includeCodeDiff = includeCode
+                    )
 
+                    workLog.content = fullContent
+                    workLogService.saveWorkLog(workLog)
+                }
+
+                // UI更新必须在主线程
                 if (!dateComboBox.getItemAt(0).equals(date)) {
                     dateComboBox.insertItemAt(date, 0)
                 }
                 dateComboBox.selectedItem = date
                 loadWorkLog()
 
-                statusLabel.text = "日志生成成功"
-                JOptionPane.showMessageDialog(panel, "工作日志已生成", "成功", JOptionPane.INFORMATION_MESSAGE)
+                statusLabel.text = if (aiSummary != null) {
+                    "日志生成成功（含 AI 总结，$commitCount 个提交）"
+                } else if (commitCount > 0) {
+                    "日志生成成功（$commitCount 个提交，无 AI）"
+                } else {
+                    "日志生成成功（空白模板）"
+                }
+
+                val message = if (aiSummary != null) {
+                    "工作日志已生成\n\n包含：\n- AI 工作总结\n- $commitCount 个 Git 提交记录" +
+                    if (includeCode) "\n- 代码变更摘要" else ""
+                } else if (commitCount > 0) {
+                    "工作日志已生成（基础格式）\n\n包含：\n- $commitCount 个 Git 提交记录" +
+                    if (includeCode) "\n- 代码变更摘要" else "" +
+                    "\n\n提示：未包含 AI 总结"
+                } else {
+                    "已生成空白日志模板\n\n未找到 Git 提交记录"
+                }
+
+                JOptionPane.showMessageDialog(
+                    panel,
+                    message,
+                    "成功",
+                    JOptionPane.INFORMATION_MESSAGE
+                )
             } catch (e: Exception) {
                 statusLabel.text = "生成失败: ${e.message}"
-                JOptionPane.showMessageDialog(panel, "生成失败: ${e.message}", "错误", JOptionPane.ERROR_MESSAGE)
+                e.printStackTrace()
+                JOptionPane.showMessageDialog(
+                    panel,
+                    "生成失败:\n\n${e.message}\n\n堆栈跟踪:\n${e.stackTraceToString().take(500)}",
+                    "错误",
+                    JOptionPane.ERROR_MESSAGE
+                )
             }
         }
     }
@@ -324,47 +470,6 @@ class WorkLogToolWindow(private val project: Project) {
         dialog.getSelectedDate()?.let { selectedDate ->
             dateComboBox.selectedItem = selectedDate
             loadWorkLog()
-        }
-    }
-
-    private fun exportWorkLog() {
-        val selectedDate = dateComboBox.selectedItem as? LocalDate ?: return
-        val workLog = workLogService.loadWorkLog(selectedDate)
-
-        if (workLog == null) {
-            JOptionPane.showMessageDialog(panel, "请先生成或加载工作日志", "导出失败", JOptionPane.WARNING_MESSAGE)
-            return
-        }
-
-        val formats = ExportFormat.values()
-        val selectedFormat = JOptionPane.showInputDialog(
-            panel, "选择导出格式:", "导出",
-            JOptionPane.QUESTION_MESSAGE, null, formats,
-            AppSettingsState.getInstance().defaultExportFormat
-        ) as? ExportFormat ?: return
-
-        val fileChooser = JFileChooser()
-        fileChooser.dialogTitle = "选择导出位置"
-        fileChooser.fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-
-        if (fileChooser.showSaveDialog(panel) == JFileChooser.APPROVE_OPTION) {
-            try {
-                val exportedFile = ExportUtil.export(workLog, selectedFormat, fileChooser.selectedFile.toPath())
-                statusLabel.text = "已导出: ${exportedFile.name}"
-
-                val result = JOptionPane.showConfirmDialog(
-                    panel,
-                    "导出成功: ${exportedFile.absolutePath}\n\n是否打开文件?",
-                    "导出成功", JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE
-                )
-
-                if (result == JOptionPane.YES_OPTION) {
-                    Desktop.getDesktop().open(exportedFile)
-                }
-            } catch (e: Exception) {
-                statusLabel.text = "导出失败: ${e.message}"
-                JOptionPane.showMessageDialog(panel, "导出失败: ${e.message}", "错误", JOptionPane.ERROR_MESSAGE)
-            }
         }
     }
 

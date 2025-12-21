@@ -2,94 +2,106 @@ package com.worklog.listeners
 
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.project.Project
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.openapi.ui.Messages
 import com.worklog.services.WorkLogService
 import com.worklog.settings.AppSettingsState
-import com.worklog.ui.GenerateWorkLogDialog
-import com.worklog.ui.ShutdownReminderDialog
+import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
 
 /**
  * 应用程序关闭监听器
  * 在 IDE 关闭时提醒用户填写工作日志
+ * 注意：此监听器只能做提醒，无法阻止 IDE 关闭
+ * 要阻止关闭请在 ProjectCloseListener 中处理
  */
 class AppCloseListener : AppLifecycleListener {
 
-    override fun appClosing() {
+    override fun appWillBeClosed(isRestart: Boolean) {
+        // 使用共享状态管理器防止重复弹窗
+        if (!CloseReminderState.tryAcquireDialogLock()) {
+            return  // 已经显示过对话框，直接返回
+        }
+
         val settings = AppSettingsState.getInstance()
 
         // 如果禁用了关闭提醒，直接返回
         if (!settings.closeReminderEnabled) {
+            CloseReminderState.releaseDialogLock()
             return
         }
 
-        // 获取所有打开的项目
-        val projects = ProjectManager.getInstance().openProjects
+        try {
+            // 获取所有打开的项目
+            val projects = ProjectManager.getInstance().openProjects
 
-        // 检查每个项目是否有今日日志
-        for (project in projects) {
-            if (project.isDisposed) continue
+            // 检查是否有项目没有今日日志
+            var hasProjectWithoutLog = false
+            var hasProjectWithLog = false
 
-            val workLogService = project.getService(WorkLogService::class.java)
-            if (workLogService == null || workLogService.hasTodayWorkLog()) {
-                continue  // 已有今日日志，跳过
-            }
+            for (project in projects) {
+                if (project.isDisposed) continue
 
-            // 显示提醒对话框（阻塞式）
-            ApplicationManager.getApplication().invokeAndWait {
-                showReminderDialog(project, workLogService)
-            }
+                val workLogService = project.getService(WorkLogService::class.java)
+                if (workLogService == null) continue
 
-            // 只提醒一个项目即可
-            break
-        }
-    }
-
-    private fun showReminderDialog(project: Project, workLogService: WorkLogService) {
-        val dialog = ShutdownReminderDialog(project)
-        if (!dialog.showAndGet()) {
-            // 用户点击了取消或关闭对话框，什么都不做
-            return
-        }
-
-        when (dialog.getUserChoice()) {
-            ShutdownReminderDialog.UserChoice.GENERATE -> {
-                // 立即生成日志 - 打开工具窗口让用户填写
-                openWorkLogToolWindow(project)
-                // 自动触发生成对话框
-                javax.swing.SwingUtilities.invokeLater {
-                    triggerGenerateWorkLog(project)
+                if (workLogService.hasTodayWorkLog()) {
+                    hasProjectWithLog = true
+                } else {
+                    hasProjectWithoutLog = true
                 }
             }
-            ShutdownReminderDialog.UserChoice.OPEN -> {
-                // 打开工作日志窗口让用户手动填写
-                openWorkLogToolWindow(project)
-            }
-            ShutdownReminderDialog.UserChoice.LATER -> {
-                // 稍后填写，什么都不做
-            }
-            ShutdownReminderDialog.UserChoice.NEVER -> {
-                // 不再提醒，更新设置
-                val settings = AppSettingsState.getInstance()
-                settings.closeReminderEnabled = false
-            }
-        }
-    }
 
-    private fun triggerGenerateWorkLog(project: Project) {
-        // 这个方法会在工具窗口打开后调用，触发生成对话框
-        // 具体实现将由 WorkLogToolWindow 提供
-    }
+            // 在EDT线程中显示对话框
+            ApplicationManager.getApplication().invokeAndWait {
+                if (hasProjectWithoutLog) {
+                    // 有项目没有日志，给出提醒（但无法阻止关闭）
+                    val options = arrayOf("知道了", "不再提醒")
+                    val result = Messages.showDialog(
+                        null,
+                        "今天还没有填写工作日志！\n\n" +
+                        "建议：下次关闭项目时会提示您填写日志。\n" +
+                        "您也可以随时通过工具窗口手动填写。",
+                        "工作日志提醒",
+                        options,
+                        0,
+                        Messages.getWarningIcon()
+                    )
 
-    private fun openWorkLogToolWindow(project: Project) {
-        try {
-            val toolWindowManager = ToolWindowManager.getInstance(project)
-            val toolWindow = toolWindowManager.getToolWindow("WorkLog")
-            toolWindow?.show()
-        } catch (e: Exception) {
-            e.printStackTrace()
+                    if (result == 1) {
+                        // 不再提醒
+                        settings.closeReminderEnabled = false
+                    }
+                } else if (hasProjectWithLog) {
+                    // 所有项目都有日志，提供复制选项
+                    val project = projects.firstOrNull { !it.isDisposed }
+                    if (project != null) {
+                        val workLogService = project.getService(WorkLogService::class.java)
+                        val workLog = workLogService?.loadWorkLog(LocalDate.now())
+                        val content = workLog?.content ?: ""
+
+                        if (content.isNotEmpty()) {
+                            val options = arrayOf("复制并关闭", "直接关闭")
+                            val result = Messages.showDialog(
+                                null,
+                                "今天的工作日志已生成，是否需要复制到剪贴板？",
+                                "工作日志提醒",
+                                options,
+                                0,
+                                Messages.getQuestionIcon()
+                            )
+
+                            if (result == 0) {
+                                CopyPasteManager.getInstance().setContents(StringSelection(content))
+                                Messages.showInfoMessage(project, "工作日志已复制到剪贴板", "复制成功")
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            CloseReminderState.releaseDialogLock()
         }
     }
 }

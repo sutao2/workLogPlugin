@@ -34,7 +34,7 @@ class GenerateWorkLogAction : AnAction() {
 
                     // 如果配置了 AI，调用 AI 生成总结
                     val settings = com.worklog.settings.AppSettingsState.getInstance()
-                    val aiSummary = if (settings.apiKey.isNotBlank() && workLog.gitCommits.isNotEmpty()) {
+                    val aiSummary = if (settings.apiKeyCompat.isNotBlank() && workLog.gitCommits.isNotEmpty()) {
                         try {
                             val aiService = project.getService(com.worklog.services.AIService::class.java)
                             aiService.summarizeWork(workLog.gitCommits, includeCode)

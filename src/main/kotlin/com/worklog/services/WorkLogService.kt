@@ -25,7 +25,15 @@ class WorkLogService(private val project: Project) {
      */
     fun createWorkLog(date: LocalDate, includeCode: Boolean = false): WorkLog {
         // 获取 Git 提交记录
-        val commits = gitService.getCommitsByDate(date, includeCode)
+        val commits = gitService.getCommitsByDate(date, includeCode).toMutableList()
+
+        // 如果是今天且允许读取代码，尝试获取未提交的变更
+        if (date == LocalDate.now() && includeCode) {
+            val uncommittedCommit = gitService.getUncommittedChangesAsCommit(includeCode)
+            if (uncommittedCommit != null) {
+                commits.add(uncommittedCommit)
+            }
+        }
 
         // 创建工作日志
         val workLog = WorkLog.create(
@@ -47,13 +55,9 @@ class WorkLogService(private val project: Project) {
         // 更新时间戳
         workLog.updatedAt = Instant.now()
 
-        // 保存 Markdown 内容
-        val fullContent = MarkdownUtil.generateFullWorkLog(
-            workLog = workLog,
-            aiSummary = null,  // AI 总结已经包含在 content 中
-            includeCodeDiff = workLog.hasCodeAccess
-        )
-        StorageUtil.writeWorkLog(project, workLog.date, fullContent)
+        // 直接保存 workLog.content，不要重新生成
+        // 因为 content 中已经包含了 AI 总结和完整内容
+        StorageUtil.writeWorkLog(project, workLog.date, workLog.content)
 
         // 保存元数据
         val metadata = WorkLogMetadata(

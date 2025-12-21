@@ -39,8 +39,17 @@ class AIService(private val project: Project) {
     suspend fun summarizeWork(commits: List<GitCommit>, includeCode: Boolean): String {
         val settings = AppSettingsState.getInstance()
 
+        // 调试日志
+        println("=== AIService.summarizeWork ===")
+        println("Total API configs: ${settings.apiConfigs.size}")
+        val activeConfig = settings.getActiveApiConfig()
+        println("Active config: ${activeConfig?.name}, isEnabled=${activeConfig?.isEnabled}")
+        println("API URL (compat): ${settings.apiUrlCompat}")
+        println("API Key (compat): ${if (settings.apiKeyCompat.isBlank()) "BLANK" else "***${settings.apiKeyCompat.takeLast(4)}"}")
+        println("===============================")
+
         // 检查配置
-        if (settings.apiUrl.isBlank() || settings.apiKey.isBlank()) {
+        if (settings.apiUrlCompat.isBlank() || settings.apiKeyCompat.isBlank()) {
             throw IllegalStateException("请先在设置中配置 AI API")
         }
 
@@ -48,7 +57,7 @@ class AIService(private val project: Project) {
         val prompt = buildPrompt(commits, includeCode, settings)
 
         // 根据 API 格式调用不同的方法
-        return when (settings.apiFormat) {
+        return when (settings.apiFormatCompat) {
             ApiFormat.OPENAI -> callOpenAIFormat(prompt, settings)
             ApiFormat.CUSTOM -> callCustomFormat(prompt, settings)
         }
@@ -84,7 +93,7 @@ class AIService(private val project: Project) {
     private suspend fun callOpenAIFormat(prompt: String, settings: AppSettingsState): String {
         return withContext(Dispatchers.IO) {
             val requestBody = buildJsonObject {
-                put("model", settings.modelName)
+                put("model", settings.modelNameCompat)
                 putJsonArray("messages") {
                     addJsonObject {
                         put("role", "system")
@@ -99,9 +108,9 @@ class AIService(private val project: Project) {
             }
 
             val request = Request.Builder()
-                .url(settings.apiUrl)
+                .url(settings.apiUrlCompat)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer ${settings.apiKey}")
+                .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
                 .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
@@ -139,12 +148,12 @@ class AIService(private val project: Project) {
             val requestBodyStr = requestTemplate
                 .replace("{{prompt}}", prompt)
                 .replace("{{system_prompt}}", settings.systemPrompt)
-                .replace("{{model}}", settings.modelName)
+                .replace("{{model}}", settings.modelNameCompat)
 
             val request = Request.Builder()
-                .url(settings.apiUrl)
+                .url(settings.apiUrlCompat)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer ${settings.apiKey}")
+                .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
                 .post(requestBodyStr.toRequestBody("application/json".toMediaType()))
                 .build()
 
@@ -200,22 +209,136 @@ class AIService(private val project: Project) {
 
     /**
      * 测试 API 连接
+     * @throws Exception 如果连接失败，抛出详细的异常信息
      */
-    suspend fun testConnection(): Boolean {
-        return try {
-            val testCommit = GitCommit(
-                hash = "test",
-                shortHash = "test",
-                message = "测试提交",
-                author = "测试",
-                authorEmail = "test@test.com",
-                timestamp = java.time.Instant.now(),
-                files = listOf("test.txt")
-            )
-            summarizeWork(listOf(testCommit), false)
-            true
+    suspend fun testConnection() {
+        val settings = AppSettingsState.getInstance()
+
+        // 检查配置
+        if (settings.apiUrlCompat.isBlank()) {
+            throw IllegalStateException("API URL 未配置")
+        }
+        if (settings.apiKeyCompat.isBlank()) {
+            throw IllegalStateException("API Key 未配置")
+        }
+        if (settings.modelNameCompat.isBlank()) {
+            throw IllegalStateException("模型名称未配置")
+        }
+
+        // 创建测试数据
+        val testCommit = GitCommit(
+            hash = "test123",
+            shortHash = "test",
+            message = "测试连接：添加测试功能",
+            author = "测试用户",
+            authorEmail = "test@example.com",
+            timestamp = java.time.Instant.now(),
+            files = listOf("test.kt")
+        )
+
+        // 调用AI服务测试
+        try {
+            val result = summarizeWork(listOf(testCommit), false)
+            if (result.isBlank()) {
+                throw RuntimeException("AI 返回内容为空")
+            }
+        } catch (e: IllegalStateException) {
+            // 配置错误，直接抛出
+            throw e
         } catch (e: Exception) {
-            false
+            // 包装其他异常，提供更详细的信息
+            throw RuntimeException("API 调用失败：${e.message}", e)
+        }
+    }
+
+    /**
+     * 通用AI调用方法
+     * @param userPrompt 用户提示词
+     * @param systemPrompt 系统提示词（可选，默认使用设置中的系统提示词）
+     */
+    suspend fun callAI(userPrompt: String, systemPrompt: String? = null): String {
+        val settings = AppSettingsState.getInstance()
+
+        // 检查配置
+        if (settings.apiUrlCompat.isBlank() || settings.apiKeyCompat.isBlank()) {
+            throw IllegalStateException("请先在设置中配置 AI API")
+        }
+
+        val actualSystemPrompt = systemPrompt ?: settings.systemPrompt
+
+        // 根据 API 格式调用不同的方法
+        return when (settings.apiFormatCompat) {
+            ApiFormat.OPENAI -> callOpenAIFormatWithPrompt(userPrompt, actualSystemPrompt, settings)
+            ApiFormat.CUSTOM -> callCustomFormatWithPrompt(userPrompt, actualSystemPrompt, settings)
+        }
+    }
+
+    private suspend fun callOpenAIFormatWithPrompt(userPrompt: String, systemPrompt: String, settings: AppSettingsState): String {
+        return withContext(Dispatchers.IO) {
+            val requestBody = buildJsonObject {
+                put("model", settings.modelNameCompat)
+                putJsonArray("messages") {
+                    addJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
+                    }
+                    addJsonObject {
+                        put("role", "user")
+                        put("content", userPrompt)
+                    }
+                }
+                put("temperature", 0.7)
+            }
+
+            val request = Request.Builder()
+                .url(settings.apiUrlCompat)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
+                .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw RuntimeException("API 调用失败: ${response.code} ${response.message}\n${response.body?.string()}")
+                }
+
+                val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")
+                val jsonResponse = json.parseToJsonElement(responseBody).jsonObject
+
+                jsonResponse["choices"]?.jsonArray?.get(0)
+                    ?.jsonObject?.get("message")
+                    ?.jsonObject?.get("content")
+                    ?.jsonPrimitive?.content
+                    ?: throw RuntimeException("无法从响应中提取内容")
+            }
+        }
+    }
+
+    private suspend fun callCustomFormatWithPrompt(userPrompt: String, systemPrompt: String, settings: AppSettingsState): String {
+        return withContext(Dispatchers.IO) {
+            // 处理自定义请求模板
+            var requestTemplate = settings.customRequestTemplate
+            requestTemplate = requestTemplate.replace("{{system}}", systemPrompt)
+            requestTemplate = requestTemplate.replace("{{user}}", userPrompt)
+            requestTemplate = requestTemplate.replace("{{model}}", settings.modelNameCompat)
+
+            val request = Request.Builder()
+                .url(settings.apiUrlCompat)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
+                .post(requestTemplate.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw RuntimeException("API 调用失败: ${response.code} ${response.message}")
+                }
+
+                val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")
+
+                // 使用 JSON Path 提取响应内容
+                extractContentFromResponse(responseBody, settings.customResponseJsonPath)
+            }
         }
     }
 }
