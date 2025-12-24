@@ -38,6 +38,28 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
     // 存储路径设置
     var storageLocation: String = ".worklogs"  // 相对于项目根目录
 
+    // 排除的文件类型（逗号分隔）
+    var excludedFileExtensions: String = """
+        ckpt,pth,bin,pb,h5,safetensors,onnx,tflite,caffemodel,
+        pkl,pickle,model,weights,pt,mar,params,
+        exe,dll,so,dylib,a,lib,o,obj,
+        zip,tar,gz,bz2,7z,rar,tgz,
+        mp4,avi,mov,mkv,mp3,wav,flac,
+        jpg,jpeg,png,gif,bmp,ico,webp,svg,psd,
+        db,sqlite,sqlite3,mdb,
+        iso,dmg,pkg,deb,rpm
+    """.trimIndent().replace("\n", "").replace(" ", "")
+
+    // 排除的目录（逗号分隔）
+    var excludedDirectories: String = """
+        /node_modules/,/dist/,/build/,/target/,/.git/,
+        /vendor/,/venv/,/__pycache__/,/.idea/,
+        /models/,/checkpoints/,/weights/
+    """.trimIndent().replace("\n", "").replace(" ", "")
+
+    // 文件大小限制（KB，超过此大小的文件不获取 diff）
+    var maxFileSizeKb: Int = 1024  // 默认 1MB
+
     // AI 提示词模板
     var systemPrompt: String = """
         你是一个专业的工作日志助手。根据用户的 Git 提交记录和代码变更，帮助总结今日的工作内容。

@@ -56,6 +56,11 @@ class SettingsConfigurable : Configurable {
     private val workLogOutputTemplateArea = JTextArea(15, 50)
     private val templateExamplesArea = JTextArea(20, 50)
 
+    // 文件过滤设置
+    private val excludedFileExtensionsArea = JTextArea(5, 50)
+    private val excludedDirectoriesArea = JTextArea(5, 50)
+    private val maxFileSizeField = JBTextField()
+
     override fun getDisplayName(): String {
         return "WorkLog"
     }
@@ -114,12 +119,32 @@ class SettingsConfigurable : Configurable {
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
+        // 文件过滤设置面板
+        excludedFileExtensionsArea.lineWrap = true
+        excludedFileExtensionsArea.wrapStyleWord = true
+        excludedDirectoriesArea.lineWrap = true
+        excludedDirectoriesArea.wrapStyleWord = true
+
+        val extensionsScrollPane = JScrollPane(excludedFileExtensionsArea)
+        val directoriesScrollPane = JScrollPane(excludedDirectoriesArea)
+
+        val filterPanel = FormBuilder.createFormBuilder()
+            .addLabeledComponent(JBLabel("排除的文件扩展名:"), extensionsScrollPane, 1, true)
+            .addComponent(JBLabel("<html><small>用逗号分隔，例如: ckpt,pth,bin,pb<br>这些类型的文件不会被包含在 Git diff 中，避免发送大文件到 AI</small></html>"))
+            .addLabeledComponent(JBLabel("排除的目录:"), directoriesScrollPane, 1, true)
+            .addComponent(JBLabel("<html><small>用逗号分隔，例如: /node_modules/,/dist/,/build/</small></html>"))
+            .addLabeledComponent(JBLabel("文件大小限制 (KB):"), maxFileSizeField, 1, false)
+            .addComponent(JBLabel("<html><small>超过此大小的文件不会获取 diff（默认 1024KB = 1MB）</small></html>"))
+            .addComponentFillVertically(JPanel(), 0)
+            .panel
+
         // 创建选项卡面板
         val tabbedPane = JTabbedPane()
         tabbedPane.addTab("AI API 配置", aiApiPanel)
         tabbedPane.addTab("代码访问权限", codeAccessPanel)
         tabbedPane.addTab("提醒设置", reminderPanel)
         tabbedPane.addTab("存储和导出", storagePanel)
+        tabbedPane.addTab("文件过滤", filterPanel)
         tabbedPane.addTab("提示词模板", promptPanel)
         tabbedPane.addTab("输出模板", templatePanel)
 
@@ -150,6 +175,10 @@ class SettingsConfigurable : Configurable {
 
         workLogOutputTemplateArea.text = settings.workLogOutputTemplate
         templateExamplesArea.text = settings.templateExamples
+
+        excludedFileExtensionsArea.text = settings.excludedFileExtensions
+        excludedDirectoriesArea.text = settings.excludedDirectories
+        maxFileSizeField.text = settings.maxFileSizeKb.toString()
     }
 
     override fun isModified(): Boolean {
@@ -178,7 +207,10 @@ class SettingsConfigurable : Configurable {
                 systemPromptArea.text != settings.systemPrompt ||
                 userPromptTemplateArea.text != settings.userPromptTemplate ||
                 workLogOutputTemplateArea.text != settings.workLogOutputTemplate ||
-                templateExamplesArea.text != settings.templateExamples
+                templateExamplesArea.text != settings.templateExamples ||
+                excludedFileExtensionsArea.text != settings.excludedFileExtensions ||
+                excludedDirectoriesArea.text != settings.excludedDirectories ||
+                maxFileSizeField.text != settings.maxFileSizeKb.toString()
     }
 
     override fun apply() {
@@ -225,6 +257,14 @@ class SettingsConfigurable : Configurable {
 
         settings.workLogOutputTemplate = workLogOutputTemplateArea.text
         settings.templateExamples = templateExamplesArea.text
+
+        settings.excludedFileExtensions = excludedFileExtensionsArea.text
+        settings.excludedDirectories = excludedDirectoriesArea.text
+        try {
+            settings.maxFileSizeKb = maxFileSizeField.text.toIntOrNull() ?: 1024
+        } catch (e: Exception) {
+            settings.maxFileSizeKb = 1024
+        }
     }
 
     override fun reset() {
