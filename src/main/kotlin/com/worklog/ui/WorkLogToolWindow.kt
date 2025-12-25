@@ -1,6 +1,7 @@
 package com.worklog.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
@@ -13,6 +14,8 @@ import com.worklog.settings.AppSettingsState
 import com.worklog.utils.StorageUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.*
@@ -25,9 +28,9 @@ import javax.swing.border.EmptyBorder
 /**
  * 工作日志主界面 - 简洁版
  */
-class WorkLogToolWindow(private val project: Project) {
+class WorkLogToolWindow(private val project: Project) : Disposable {
 
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val scope = CoroutineScope(Dispatchers.Main + Job())
     private val workLogService = project.getService(WorkLogService::class.java)
 
     // UI 组件
@@ -47,6 +50,10 @@ class WorkLogToolWindow(private val project: Project) {
 
     fun getContent(): JComponent {
         return panel
+    }
+
+    override fun dispose() {
+        scope.cancel()
     }
 
     private fun initUI() {

@@ -6,11 +6,11 @@ import com.intellij.openapi.vcs.changes.ChangeListManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.worklog.models.GitCommit
 import git4idea.GitUtil
-import git4idea.history.GitHistoryUtils
 import git4idea.repo.GitRepository
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.concurrent.TimeUnit
 
 /**
  * Git 服务
@@ -33,7 +33,13 @@ class GitService(private val project: Project) {
             )
 
             val email = process.inputStream.bufferedReader().readText().trim()
-            process.waitFor()
+
+            // 添加超时保护
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                println("警告: git config 命令超时")
+                return null
+            }
 
             if (process.exitValue() == 0 && email.isNotEmpty()) {
                 email
@@ -41,6 +47,7 @@ class GitService(private val project: Project) {
                 null
             }
         } catch (e: Exception) {
+            println("获取 Git 用户 email 失败: ${e.message}")
             null
         }
     }
@@ -87,7 +94,13 @@ class GitService(private val project: Project) {
             )
 
             val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
+
+            // 添加超时保护（30秒）
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                println("Git log 命令超时")
+                return emptyList()
+            }
 
             if (process.exitValue() != 0) {
                 val error = process.errorStream.bufferedReader().readText()
@@ -96,6 +109,18 @@ class GitService(private val project: Project) {
             }
 
             println("Git 输出:\n$output")
+
+            // 获取配置（只获取一次，避免重复解析）
+            val settings = com.worklog.settings.AppSettingsState.getInstance()
+            val excludedExtensions = settings.excludedFileExtensions
+                .split(",")
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() }
+                .toSet()
+            val excludedDirs = settings.excludedDirectories
+                .split(",")
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() }
 
             // 解析输出
             val commits = mutableListOf<GitCommit>()
@@ -122,8 +147,8 @@ class GitService(private val project: Project) {
                         while (i < lines.size && !lines[i].contains("|")) {
                             if (lines[i].isNotBlank()) {
                                 val filePath = lines[i]
-                                // 只包含应该被跟踪的文件类型
-                                if (shouldIncludeFilePath(filePath)) {
+                                // 只包含应该被跟踪的文件类型（使用预解析的配置）
+                                if (shouldIncludeFilePath(filePath, excludedExtensions, excludedDirs)) {
                                     files.add(filePath)
                                 } else {
                                     println("  跳过文件: $filePath")
@@ -236,30 +261,19 @@ class GitService(private val project: Project) {
     /**
      * 判断文件路径是否应该包含在日志中（基于路径字符串）
      */
-    private fun shouldIncludeFilePath(filePath: String): Boolean {
+    private fun shouldIncludeFilePath(
+        filePath: String,
+        excludedExtensions: Set<String>,
+        excludedDirs: List<String>
+    ): Boolean {
         val path = filePath.lowercase()
         val fileName = path.substringAfterLast('/')
-
-        val settings = com.worklog.settings.AppSettingsState.getInstance()
-
-        // 从配置中获取排除的文件扩展名
-        val excludedExtensions = settings.excludedFileExtensions
-            .split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
-            .toSet()
 
         // 检查文件扩展名
         val extension = fileName.substringAfterLast('.', "")
         if (extension in excludedExtensions) {
             return false
         }
-
-        // 从配置中获取排除的目录
-        val excludedDirs = settings.excludedDirectories
-            .split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
 
         return !excludedDirs.any { path.contains(it) }
     }
@@ -310,10 +324,17 @@ class GitService(private val project: Project) {
             )
 
             val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
+
+            // 添加超时保护（15秒）
+            if (!process.waitFor(15, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                println("Git show 命令超时: $commitHash")
+                return null
+            }
 
             if (process.exitValue() == 0) output else null
         } catch (e: Exception) {
+            println("获取提交 diff 失败: ${e.message}")
             null
         }
     }

@@ -8,11 +8,10 @@ import com.intellij.openapi.project.Project
 import com.worklog.settings.AppSettingsState
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
-import java.util.*
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 提醒服务
@@ -22,7 +21,7 @@ import java.util.concurrent.TimeUnit
 class ReminderService(private val project: Project) {
 
     private var scheduler: ScheduledExecutorService? = null
-    private var reminderTask: TimerTask? = null
+    private val isRunning = AtomicBoolean(false)
 
     private val workLogService: WorkLogService
         get() = project.getService(WorkLogService::class.java)
@@ -30,6 +29,7 @@ class ReminderService(private val project: Project) {
     /**
      * 启动定时提醒
      */
+    @Synchronized
     fun start() {
         stop()  // 先停止之前的任务
 
@@ -38,6 +38,7 @@ class ReminderService(private val project: Project) {
             return
         }
 
+        isRunning.set(true)
         scheduler = Executors.newScheduledThreadPool(1)
         scheduleNextReminder()
     }
@@ -45,10 +46,16 @@ class ReminderService(private val project: Project) {
     /**
      * 停止定时提醒
      */
+    @Synchronized
     fun stop() {
-        reminderTask?.cancel()
-        reminderTask = null
+        isRunning.set(false)
         scheduler?.shutdown()
+        try {
+            // 等待任务完成，最多等待 2 秒
+            scheduler?.awaitTermination(2, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         scheduler = null
     }
 
@@ -56,6 +63,16 @@ class ReminderService(private val project: Project) {
      * 调度下一次提醒
      */
     private fun scheduleNextReminder() {
+        // 检查服务是否仍在运行
+        if (!isRunning.get()) {
+            return
+        }
+
+        val currentScheduler = scheduler
+        if (currentScheduler == null || currentScheduler.isShutdown) {
+            return
+        }
+
         val settings = AppSettingsState.getInstance()
         val reminderTime = settings.getReminderLocalTime()
 
@@ -69,19 +86,23 @@ class ReminderService(private val project: Project) {
 
         val delay = java.time.Duration.between(now, nextReminder).toMillis()
 
-        scheduler?.schedule({
-            showReminder()
-            // 调度下一次提醒（24小时后）
-            scheduleNextReminder()
-        }, delay, TimeUnit.MILLISECONDS)
+        try {
+            currentScheduler.schedule({
+                if (isRunning.get()) {
+                    showReminder()
+                    // 调度下一次提醒（24小时后）
+                    scheduleNextReminder()
+                }
+            }, delay, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            // scheduler 可能已被关闭，忽略异常
+        }
     }
 
     /**
      * 显示提醒通知
      */
     fun showReminder() {
-        val today = LocalDate.now()
-
         // 检查今日是否已有日志
         if (workLogService.hasTodayWorkLog()) {
             return  // 已有日志，不再提醒

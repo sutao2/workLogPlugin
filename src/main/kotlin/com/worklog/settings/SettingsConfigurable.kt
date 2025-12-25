@@ -71,55 +71,100 @@ class SettingsConfigurable : Configurable {
         // 加载当前设置
         loadSettings(settings)
 
-        // AI API 设置面板（使用表格形式）
-        val aiApiPanel = createApiConfigPanel()
+        // 创建选项卡面板（使用延迟加载）
+        val tabbedPane = JTabbedPane()
 
-        // 代码访问权限面板
-        val codeAccessPanel = FormBuilder.createFormBuilder()
+        // 缓存已创建的面板
+        val panelCache = mutableMapOf<Int, JPanel>()
+
+        // 添加标签页（不立即创建内容）
+        tabbedPane.addTab("AI API 配置", null)
+        tabbedPane.addTab("代码访问权限", null)
+        tabbedPane.addTab("提醒设置", null)
+        tabbedPane.addTab("存储和导出", null)
+        tabbedPane.addTab("文件过滤", null)
+        tabbedPane.addTab("提示词模板", null)
+        tabbedPane.addTab("输出模板", null)
+
+        // 添加标签页切换监听器，实现延迟加载
+        tabbedPane.addChangeListener { _ ->
+            val selectedIndex = tabbedPane.selectedIndex
+            if (tabbedPane.getComponentAt(selectedIndex) == null) {
+                // 只在标签页内容为空时创建
+                val panel = when (selectedIndex) {
+                    0 -> panelCache.getOrPut(0) { createApiConfigPanel() }
+                    1 -> panelCache.getOrPut(1) { createCodeAccessPanel() }
+                    2 -> panelCache.getOrPut(2) { createReminderPanel() }
+                    3 -> panelCache.getOrPut(3) { createStoragePanel() }
+                    4 -> panelCache.getOrPut(4) { createFilterPanel() }
+                    5 -> panelCache.getOrPut(5) { createPromptPanel() }
+                    6 -> panelCache.getOrPut(6) { createTemplatePanel() }
+                    else -> JPanel()
+                }
+                tabbedPane.setComponentAt(selectedIndex, panel)
+            }
+        }
+
+        // 立即创建第一个标签页（用户最可能查看的）
+        tabbedPane.setComponentAt(0, createApiConfigPanel())
+
+        settingsPanel = JPanel(BorderLayout())
+        settingsPanel?.add(tabbedPane, BorderLayout.CENTER)
+
+        return settingsPanel!!
+    }
+
+    private fun createCodeAccessPanel(): JPanel {
+        return FormBuilder.createFormBuilder()
             .addComponent(allowCodeAccessCheckBox)
             .addComponent(rememberCodeAccessCheckBox)
             .addComponent(JBLabel("<html><small>允许读取代码后，AI 可以分析代码变更内容以生成更详细的总结</small></html>"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+    }
 
-        // 提醒设置面板
-        val reminderPanel = FormBuilder.createFormBuilder()
+    private fun createReminderPanel(): JPanel {
+        return FormBuilder.createFormBuilder()
             .addComponent(reminderEnabledCheckBox)
             .addLabeledComponent(JBLabel("提醒时间 (HH:mm):"), reminderTimeField, 1, false)
             .addComponent(closeReminderCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
+    }
 
-        // 导出和存储设置面板
-        val storagePanel = FormBuilder.createFormBuilder()
+    private fun createStoragePanel(): JPanel {
+        return FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("默认导出格式:"), exportFormatComboBox, 1, false)
             .addLabeledComponent(JBLabel("存储路径:"), storageLocationField, 1, false)
             .addComponent(JBLabel("<html><small>相对于项目根目录的路径</small></html>"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+    }
 
-        // 提示词模板面板
+    private fun createPromptPanel(): JPanel {
         val systemPromptScrollPane = JScrollPane(systemPromptArea)
         val userPromptScrollPane = JScrollPane(userPromptTemplateArea)
-        val promptPanel = FormBuilder.createFormBuilder()
+        return FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("系统提示词:"), systemPromptScrollPane, 1, true)
             .addLabeledComponent(JBLabel("用户提示词模板:"), userPromptScrollPane, 1, true)
             .addComponent(JBLabel("<html><small>可用变量: {{commits}}, {{code_diff}}, {{#if hasCodeAccess}}...{{/if}}</small></html>"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+    }
 
-        // 日志输出模板面板
+    private fun createTemplatePanel(): JPanel {
         val outputTemplateScrollPane = JScrollPane(workLogOutputTemplateArea)
         val examplesScrollPane = JScrollPane(templateExamplesArea)
-        val templatePanel = FormBuilder.createFormBuilder()
+        return FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("工作日志输出模板:"), outputTemplateScrollPane, 1, true)
             .addComponent(JBLabel("<html><small>可用变量: {{date}}, {{ai_summary}}, {{git_commits}}, {{code_changes}}<br>条件语法: {{#if hasCodeAccess}}...{{/if}}</small></html>"))
             .addLabeledComponent(JBLabel("模板示例（仅供参考）:"), examplesScrollPane, 1, true)
             .addComponent(JBLabel("<html><small>提示：可以从示例中复制模板格式到上方的输出模板中</small></html>"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+    }
 
-        // 文件过滤设置面板
+    private fun createFilterPanel(): JPanel {
         excludedFileExtensionsArea.lineWrap = true
         excludedFileExtensionsArea.wrapStyleWord = true
         excludedDirectoriesArea.lineWrap = true
@@ -128,7 +173,7 @@ class SettingsConfigurable : Configurable {
         val extensionsScrollPane = JScrollPane(excludedFileExtensionsArea)
         val directoriesScrollPane = JScrollPane(excludedDirectoriesArea)
 
-        val filterPanel = FormBuilder.createFormBuilder()
+        return FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("排除的文件扩展名:"), extensionsScrollPane, 1, true)
             .addComponent(JBLabel("<html><small>用逗号分隔，例如: ckpt,pth,bin,pb<br>这些类型的文件不会被包含在 Git diff 中，避免发送大文件到 AI</small></html>"))
             .addLabeledComponent(JBLabel("排除的目录:"), directoriesScrollPane, 1, true)
@@ -137,21 +182,6 @@ class SettingsConfigurable : Configurable {
             .addComponent(JBLabel("<html><small>超过此大小的文件不会获取 diff（默认 1024KB = 1MB）</small></html>"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
-
-        // 创建选项卡面板
-        val tabbedPane = JTabbedPane()
-        tabbedPane.addTab("AI API 配置", aiApiPanel)
-        tabbedPane.addTab("代码访问权限", codeAccessPanel)
-        tabbedPane.addTab("提醒设置", reminderPanel)
-        tabbedPane.addTab("存储和导出", storagePanel)
-        tabbedPane.addTab("文件过滤", filterPanel)
-        tabbedPane.addTab("提示词模板", promptPanel)
-        tabbedPane.addTab("输出模板", templatePanel)
-
-        settingsPanel = JPanel(BorderLayout())
-        settingsPanel?.add(tabbedPane, BorderLayout.CENTER)
-
-        return settingsPanel!!
     }
 
     private fun loadSettings(settings: AppSettingsState) {
