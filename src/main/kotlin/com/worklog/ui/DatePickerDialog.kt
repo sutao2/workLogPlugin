@@ -3,6 +3,7 @@ package com.worklog.ui
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
+import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.GridLayout
 import java.time.LocalDate
@@ -47,9 +48,11 @@ class DatePickerDialog(project: Project) : DialogWrapper(project) {
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout(10, 10))
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.empty(10)
+        panel.preferredSize = java.awt.Dimension(300, 110)
 
-        val inputPanel = JPanel(GridLayout(3, 2, 10, 10))
+        val inputPanel = JPanel(GridLayout(3, 2, 10, 8))
 
         inputPanel.add(JBLabel("年份:"))
         inputPanel.add(yearSpinner)
@@ -61,10 +64,6 @@ class DatePickerDialog(project: Project) : DialogWrapper(project) {
         inputPanel.add(daySpinner)
 
         panel.add(inputPanel, BorderLayout.CENTER)
-
-        val hintPanel = JPanel(BorderLayout())
-        hintPanel.add(JBLabel("选择要创建或编辑日志的日期"), BorderLayout.WEST)
-        panel.add(hintPanel, BorderLayout.SOUTH)
 
         return panel
     }

@@ -2,9 +2,13 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.JBColor
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Font
 import java.time.LocalDate
 import javax.swing.*
 
@@ -13,7 +17,7 @@ import javax.swing.*
  */
 class ShutdownReminderDialog(private val project: Project) : DialogWrapper(project) {
 
-    private val dontRemindCheckBox = JCheckBox("今天不再提醒")
+    private val dontRemindCheckBox = JBCheckBox("今天不再提醒")
     private var userChoice: UserChoice = UserChoice.LATER
 
     enum class UserChoice {
@@ -29,33 +33,22 @@ class ShutdownReminderDialog(private val project: Project) : DialogWrapper(proje
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(400, 200)
+        val panel = JPanel(BorderLayout(0, 10))
+        panel.border = JBUI.Borders.empty(10)
+        panel.preferredSize = Dimension(400, 120)
 
         // 主要内容
-        val contentPanel = JPanel()
-        contentPanel.layout = BoxLayout(contentPanel, BoxLayout.Y_AXIS)
-
-        val iconLabel = JBLabel("📝")
-        iconLabel.font = iconLabel.font.deriveFont(48f)
-        iconLabel.alignmentX = JComponent.CENTER_ALIGNMENT
-        contentPanel.add(iconLabel)
-        contentPanel.add(Box.createVerticalStrut(20))
-
-        val messageLabel = JBLabel("<html><center>今日工作日志尚未填写<br>是否现在填写？</center></html>")
-        messageLabel.alignmentX = JComponent.CENTER_ALIGNMENT
-        contentPanel.add(messageLabel)
-        contentPanel.add(Box.createVerticalStrut(20))
-
-        val today = LocalDate.now()
-        val dateLabel = JBLabel("日期: $today")
-        dateLabel.alignmentX = JComponent.CENTER_ALIGNMENT
-        contentPanel.add(dateLabel)
+        val contentPanel = JPanel(BorderLayout(0, 4))
+        val titleLabel = JBLabel("今日工作日志尚未填写")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 15f)
+        val messageLabel = JBLabel("可以现在生成日志，也可以打开编辑器手动填写。日期: ${LocalDate.now()}")
+        messageLabel.foreground = JBColor.GRAY
+        contentPanel.add(titleLabel, BorderLayout.NORTH)
+        contentPanel.add(messageLabel, BorderLayout.CENTER)
 
         panel.add(contentPanel, BorderLayout.CENTER)
 
         // 底部选项
-        dontRemindCheckBox.alignmentX = JComponent.CENTER_ALIGNMENT
         panel.add(dontRemindCheckBox, BorderLayout.SOUTH)
 
         return panel

@@ -2,9 +2,11 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
+import com.intellij.util.ui.JBUI
 import com.worklog.models.ExportFormat
 import com.worklog.services.AIService
 import com.worklog.services.StatisticsService
@@ -19,11 +21,7 @@ import java.awt.Desktop
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
-import java.awt.Insets
 import java.io.File
-import java.nio.file.Path
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
@@ -42,6 +40,20 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     private val tabbedPane = JBTabbedPane()
     private val scope = CoroutineScope(Dispatchers.Main)
 
+    companion object {
+        private val THINK_TAG_REGEX = Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL)
+        private val THINKING_TAG_REGEX = Regex("<thinking>.*?</thinking>", RegexOption.DOT_MATCHES_ALL)
+        private val REASONING_TAG_REGEX = Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL)
+    }
+
+    private fun cleanAiSummary(rawSummary: String): String {
+        var cleanedSummary = rawSummary.trim()
+        cleanedSummary = cleanedSummary.replace(THINK_TAG_REGEX, "")
+        cleanedSummary = cleanedSummary.replace(THINKING_TAG_REGEX, "")
+        cleanedSummary = cleanedSummary.replace(REASONING_TAG_REGEX, "")
+        return cleanedSummary.trim()
+    }
+
     init {
         title = "工作统计"
         init()
@@ -50,6 +62,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
         panel.preferredSize = Dimension(800, 600)
+        panel.border = JBUI.Borders.empty(8)
 
         // 创建标签页
         tabbedPane.addTab("本周统计", createWeeklyPanel())
@@ -62,21 +75,17 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     }
 
     private fun createWeeklyPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 8))
 
         // 顶部控制面板
-        val topPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5))
+        val topPanel = createActionBar()
         val generateButton = JButton("生成本周AI总结")
         val exportButton = JButton("导出周报")
         topPanel.add(generateButton)
         topPanel.add(exportButton)
 
         // 结果显示区域
-        val resultArea = JTextArea()
-        resultArea.isEditable = false
-        resultArea.font = Font("Monospaced", Font.PLAIN, 12)
-        resultArea.lineWrap = true
-        resultArea.wrapStyleWord = true
+        val resultArea = createReportTextArea()
 
         // 获取本周日期范围
         val now = LocalDate.now()
@@ -147,16 +156,16 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         panel.add(topPanel, BorderLayout.NORTH)
-        panel.add(JBScrollPane(resultArea), BorderLayout.CENTER)
+        panel.add(createReportScrollPane(resultArea), BorderLayout.CENTER)
 
-        return panel
+        return wrapStatsPage(panel)
     }
 
     private fun createMonthlyPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 8))
 
         // 顶部控制面板 - 和周报、年报保持一致的 FlowLayout
-        val topPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5))
+        val topPanel = createActionBar()
         topPanel.add(JBLabel("选择月份:"))
 
         val yearField = JTextField(6)
@@ -180,11 +189,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         topPanel.add(exportButton)
 
         // 结果显示区域
-        val resultArea = JTextArea()
-        resultArea.isEditable = false
-        resultArea.font = Font("Monospaced", Font.PLAIN, 12)
-        resultArea.lineWrap = true
-        resultArea.wrapStyleWord = true
+        val resultArea = createReportTextArea()
 
         var currentYear = LocalDate.now().year
         var currentMonth = LocalDate.now().monthValue
@@ -274,16 +279,16 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         panel.add(topPanel, BorderLayout.NORTH)
-        panel.add(JBScrollPane(resultArea), BorderLayout.CENTER)
+        panel.add(createReportScrollPane(resultArea), BorderLayout.CENTER)
 
-        return panel
+        return wrapStatsPage(panel)
     }
 
     private fun createYearlyPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 8))
 
         // 顶部控制面板
-        val topPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5))
+        val topPanel = createActionBar()
         topPanel.add(JBLabel("选择年份:"))
 
         val yearField = JTextField(6)
@@ -299,11 +304,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         topPanel.add(exportButton)
 
         // 结果显示区域
-        val resultArea = JTextArea()
-        resultArea.isEditable = false
-        resultArea.font = Font("Monospaced", Font.PLAIN, 12)
-        resultArea.lineWrap = true
-        resultArea.wrapStyleWord = true
+        val resultArea = createReportTextArea()
 
         var currentYear = LocalDate.now().year
 
@@ -385,15 +386,15 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         panel.add(topPanel, BorderLayout.NORTH)
-        panel.add(JBScrollPane(resultArea), BorderLayout.CENTER)
+        panel.add(createReportScrollPane(resultArea), BorderLayout.CENTER)
 
-        return panel
+        return wrapStatsPage(panel)
     }
 
     private fun createCustomRangePanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 8))
 
-        val topPanel = JPanel()
+        val topPanel = createActionBar()
         topPanel.add(JBLabel("开始日期: "))
         val startDateField = JTextField(10)
         startDateField.text = LocalDate.now().minusDays(30).toString()
@@ -405,9 +406,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         topPanel.add(endDateField)
 
         val queryButton = JButton("查询")
-        val resultArea = JTextArea()
-        resultArea.isEditable = false
-        resultArea.font = Font("Monospaced", Font.PLAIN, 12)
+        val resultArea = createReportTextArea()
 
         queryButton.addActionListener {
             try {
@@ -422,22 +421,36 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         topPanel.add(queryButton)
 
         panel.add(topPanel, BorderLayout.NORTH)
-        panel.add(JBScrollPane(resultArea), BorderLayout.CENTER)
+        panel.add(createReportScrollPane(resultArea), BorderLayout.CENTER)
 
+        return wrapStatsPage(panel)
+    }
+
+    private fun wrapStatsPage(content: JComponent): JPanel {
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.empty(8)
+        panel.add(content, BorderLayout.CENTER)
         return panel
     }
 
-    private fun createStatisticsPanel(content: String, title: String): JComponent {
-        val panel = JPanel(BorderLayout())
+    private fun createActionBar(): JPanel {
+        return JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+    }
 
-        val textArea = JTextArea(content)
-        textArea.isEditable = false
-        textArea.font = Font("Monospaced", Font.PLAIN, 12)
+    private fun createReportTextArea(): JTextArea {
+        return JTextArea().apply {
+            isEditable = false
+            font = Font("Monospaced", Font.PLAIN, 12)
+            lineWrap = true
+            wrapStyleWord = true
+            margin = JBUI.insets(10)
+        }
+    }
 
-        val scrollPane = JBScrollPane(textArea)
-        panel.add(scrollPane, BorderLayout.CENTER)
-
-        return panel
+    private fun createReportScrollPane(textArea: JTextArea): JBScrollPane {
+        return JBScrollPane(textArea).apply {
+            border = BorderFactory.createLineBorder(JBColor.border())
+        }
     }
 
     private fun formatStatistics(stats: com.worklog.models.WorkLogStatistics): String {
@@ -586,13 +599,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         val rawSummary = aiService.callAI(prompt, systemPrompt)
-
-        // 清理可能残留的思考过程标签
-        var cleanedSummary = rawSummary.trim()
-        cleanedSummary = cleanedSummary.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.replace(Regex("<thinking>.*?</thinking>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.replace(Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.trim()
+        val cleanedSummary = cleanAiSummary(rawSummary)
 
         // 自动保存到目录
         autoSaveWeeklyReport(startDate, endDate, cleanedSummary)
@@ -639,13 +646,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         val rawSummary = aiService.callAI(prompt, systemPrompt)
-
-        // 清理可能残留的思考过程标签
-        var cleanedSummary = rawSummary.trim()
-        cleanedSummary = cleanedSummary.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.replace(Regex("<thinking>.*?</thinking>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.replace(Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.trim()
+        val cleanedSummary = cleanAiSummary(rawSummary)
 
         // 自动保存到目录
         autoSaveMonthlyReport(year, month, cleanedSummary)
@@ -686,20 +687,14 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
             appendLine("全年工作日志：")
             appendLine("=".repeat(50))
 
-            // 由于日志可能很多，按月汇总
+            // 由于日志可能很多，按月汇总（避免每月重复遍历全部日志）
+            val logsByMonth = logs.entries.groupBy { LocalDate.parse(it.key).monthValue }
             for (month in 1..12) {
-                val monthStart = LocalDate.of(year, month, 1)
-                val monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth())
-                val monthLogs = logs.filter {
-                    val date = LocalDate.parse(it.key)
-                    !date.isBefore(monthStart) && !date.isAfter(monthEnd)
-                }
-
+                val monthLogs = logsByMonth[month].orEmpty()
                 if (monthLogs.isNotEmpty()) {
                     appendLine()
                     appendLine("### ${month}月工作")
                     monthLogs.forEach { (date, content) ->
-                        // 只取每天日志的概要部分，避免太长
                         val summary = content.lines().take(5).joinToString("\n")
                         appendLine("- $date: $summary")
                     }
@@ -708,13 +703,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         val rawSummary = aiService.callAI(prompt, systemPrompt)
-
-        // 清理可能残留的思考过程标签
-        var cleanedSummary = rawSummary.trim()
-        cleanedSummary = cleanedSummary.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.replace(Regex("<thinking>.*?</thinking>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.replace(Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL), "")
-        cleanedSummary = cleanedSummary.trim()
+        val cleanedSummary = cleanAiSummary(rawSummary)
 
         // 自动保存到目录
         autoSaveYearlyReport(year, cleanedSummary)

@@ -27,6 +27,37 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
     var allowCodeAccess: Boolean = false
     var rememberCodeAccessChoice: Boolean = false
 
+    // 代码评审设置
+    var reviewEnabled: Boolean = false
+    var reviewAutoRunBeforeCommit: Boolean = false
+    var reviewMaxDiffChars: Int = 50000
+
+    // 代码评审提示词
+    var reviewSystemPrompt: String = """
+        你是一位资深代码审查专家。请对以下代码变更进行评审，关注：
+        1. 潜在的 Bug 和逻辑错误
+        2. 安全漏洞
+        3. 性能问题
+        4. 代码质量和可维护性
+
+        请用中文输出评审结果，使用 Markdown 格式。
+        如果没有发现明显问题，请说明"未发现明显问题"。
+    """.trimIndent()
+
+    var reviewUserPromptTemplate: String = """
+        请评审以下代码变更：
+
+        提交说明：{{commit_message}}
+
+        变更文件：
+        {{files}}
+
+        代码差异：
+        ```
+        {{diff}}
+        ```
+    """.trimIndent()
+
     // 提醒设置
     var reminderEnabled: Boolean = true
     var reminderTime: String = "17:30"  // 使用字符串存储，格式 HH:mm
@@ -138,6 +169,7 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
     """.trimIndent()
 
     override fun getState(): AppSettingsState {
+        migrateApiKeysToPasswordSafe()
         return this
     }
 
@@ -159,6 +191,7 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
 
         // 确保只有一个配置是激活的
         ensureSingleActiveConfig()
+        migrateApiKeysToPasswordSafe()
     }
 
     companion object {
@@ -255,7 +288,7 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
      * 向后兼容的属性：apiKey
      */
     val apiKeyCompat: String
-        get() = getActiveApiConfig()?.apiKey ?: ""
+        get() = getActiveApiConfig()?.let { ApiKeyStore.getApiKey(it.id, it.apiKey) } ?: ""
 
     /**
      * 向后兼容的属性：modelName
@@ -297,5 +330,14 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
      */
     fun setReminderLocalTime(time: LocalTime) {
         reminderTime = time.toString()
+    }
+
+    private fun migrateApiKeysToPasswordSafe() {
+        apiConfigs.forEach { config ->
+            if (config.apiKey.isNotBlank()) {
+                ApiKeyStore.setApiKey(config.id, config.apiKey)
+                config.apiKey = ""
+            }
+        }
     }
 }

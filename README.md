@@ -1,250 +1,197 @@
 # WorkLog - IDEA 工作日志插件
 
-一款功能强大的 IntelliJ IDEA 工作日志管理插件，帮助开发者自动记录和管理每日工作内容。
+一款面向 IntelliJ 系 IDE 的工作日志插件：从 Git 记录出发，可选结合 AI 生成总结与代码评审，用 Markdown 落盘，并支持统计与周报/月报/年报。
 
 ## 主要功能
 
-- ✅ **自动获取 Git 提交信息** - 自动读取指定日期的所有 Git 提交记录
-- ✅ **AI 智能总结** - 支持调用大模型 API（OpenAI 格式或自定义格式）自动生成工作总结
-- ✅ **代码访问权限控制** - 可配置是否允许读取代码内容，严格保护隐私
-- ✅ **Markdown 格式** - 使用 Markdown 格式编辑和存储日志，方便阅读和分享
-- ✅ **IDE 关闭提醒** - 关闭 IDEA 时自动提醒填写工作日志，避免遗忘
-- ✅ **历史日志管理** - 查看、搜索和管理历史工作日志
-- ✅ **定时提醒** - 可配置每天定时提醒填写日志
-- ✅ **多格式导出** - 支持导出为 Markdown、HTML 或 PDF 格式
+- **自动获取 Git 提交信息** — 按所选日期汇总仓库中的提交；生成**当日**日志且**允许读取代码**时，会把**本地未提交变更**合成额外条目一并参与展示与总结（仍受文件过滤规则约束）。
+- **AI 智能总结** — 支持 OpenAI Chat Completions 兼容接口或完全自定义请求/响应解析；可多套 API 配置切换。
+- **AI 代码评审** — 对**暂存区**或**历史提交**做变更评审；可选**提交前自动评审**（需在设置中开启，且需允许读取代码）。
+- **代码访问权限** — 未授权时不读取 diff/工作区内容；与日志总结、代码评审联动。
+- **Markdown 编辑与存储** — 默认写入项目下配置目录；支持可定制的**输出模板**（占位符拼装最终 Markdown）。
+- **提醒** — **项目关闭**时可拦截并提醒补写今日日志（主要 enforcement）；**退出 IDE** 时也可提醒；支持每日定时提醒。
+- **历史与导出** — 浏览、搜索历史日志；导出 Markdown / HTML / PDF。
+- **工作统计与报告** — 「工作统计」看板；一键生成**周报 / 月报 / 年报**（基于已保存的日志与元数据）。
 
 ## 系统要求
 
-### 用户使用
-- IntelliJ IDEA 2023.1 或更高版本（IDEA 已内置 Java 运行时）
-- Git（用于获取提交记录）
+### 最终用户
+
+- **IntelliJ IDEA / IntelliJ 系 IDE**：与本插件构建配置一致，当前兼容约 **2024.2（build 242）— 2026.1.x**（以 `gradle.properties` 中 `pluginSinceBuild` / `pluginUntilBuild` 为准）。
+- **Git**：已安装并在 PATH 中可用；仓库需能被 IDE 识别为 Git 项目。
+- **Git4Idea**：插件依赖 JetBrains 自带的 Git 集成（通常已随 IDE 启用）。
 
 ### 开发者构建
-- IntelliJ IDEA 2023.1 或更高版本
-- JDK 17 或更高版本（仅用于编译插件）
-- Git
+
+- JDK **17+**（用于编译；运行沙箱仍由 Gradle IntelliJ 插件拉取平台）。
+- Git。
+- 推荐与本仓库相同的 **Gradle** 版本（见 `gradle/wrapper`）。
+
+## 依赖说明
+
+- 平台模块：`com.intellij.modules.platform`、`com.intellij.modules.vcs`。
+- **Git4Idea**：提交历史、变更列表等与 VCS 的集成均依赖该插件。
 
 ## 安装
 
 ### 从源码构建
 
-1. 克隆仓库
+1. 克隆仓库（请将下方地址换成你的 fork 或上游仓库）。
+
 ```bash
-git clone https://github.com/yourusername/workLogPlugin.git
+git clone https://github.com/sutao1/workLogPlugin.git
 cd workLogPlugin
 ```
 
-2. 构建插件
+2. 构建插件 ZIP：
+
 ```bash
 ./gradlew buildPlugin
 ```
 
-3. 安装插件
-   - 打开 IntelliJ IDEA
-   - 进入 `Settings` → `Plugins` → `⚙️` → `Install Plugin from Disk...`
-   - 选择 `build/distributions/workLogPlugin-1.0.0.zip`
+3. 在 IDE 中安装：`Settings` → `Plugins` → ⚙️ → `Install Plugin from Disk...`，选择
+   `build/distributions/workLog-<版本号>.zip`（版本号与 `gradle.properties` 中 `pluginVersion` 一致，例如 `1.0.0`）。
 
 ### 从 JetBrains Marketplace 安装
 
-（待发布到 Marketplace 后补充）
+（上架后可在此补充插件页链接与版本说明。）
 
 ## 使用指南
 
+### 入口一览
+
+| 入口 | 说明 |
+|------|------|
+| 右侧 **WorkLog** 工具窗口 | 主界面：生成、编辑、历史、导出等 |
+| `Tools` 菜单 | **生成工作日志**、**查看历史日志**、**工作统计**、**生成周报/月报/年报**、**代码评审** |
+| **提交（Commit）** 工具窗口 | 提交消息区域可触发 **代码评审**（评审暂存区） |
+| **Git Log** 右键菜单 | **评审提交代码**（针对所选历史提交） |
+| `Settings` → `Tools` → **WorkLog** | 全部选项与提示词模板 |
+
 ### 快速开始
 
-1. **打开工作日志面板**
-   - 点击右侧工具栏的 `WorkLog` 标签
-   - 或使用菜单 `Tools` → `生成工作日志`
-
-2. **生成今日日志**
-   - 在工作日志面板中点击 `生成日志` 按钮
-   - 选择日期（默认为今天）
-   - 选择是否允许读取代码内容
-   - 点击 `OK`，插件将自动获取 Git 提交记录并生成日志
-
-3. **编辑和保存**
-   - 在 Markdown 编辑器中编辑日志内容
-   - 点击 `保存` 按钮保存日志
+1. 打开右侧 **WorkLog** 工具窗口，或使用 `Tools` → `生成工作日志`。
+2. 选择日期，按需勾选「允许读取代码」等选项后生成。
+3. 在编辑器中修改 Markdown，保存后内容写入配置的存储目录。
 
 ### 配置 AI API
 
-1. 打开设置
-   - `Settings` → `Tools` → `WorkLog`
+1. `Settings` → `Tools` → `WorkLog` → **AI API 配置**。
+2. 可新增多套配置：**OpenAI 格式**（填写 URL / Key / 模型）或**自定义格式**（请求 JSON 模板 + 响应字段路径）。
+3. 使用 **测试 AI 连接** 校验；用 **设为当前** 切换正在使用的配置。
+4. 在 **代码访问权限** 中控制是否允许读取 diff；代码评审的自动提交前流程也依赖「允许读取代码」。
 
-2. 配置 AI API（支持多个 API 配置）
-   - 点击 `添加新配置` 创建新的 API 配置
-   - **配置名称**：为配置起一个便于识别的名称
-   - **OpenAI 格式**（适用于 OpenAI、Azure OpenAI、通义千问、文心一言等）
-     - API URL: 例如 `https://api.openai.com/v1/chat/completions`
-     - API Key: 你的 API 密钥
-     - 模型名称: 例如 `gpt-4`
-   - **自定义格式**
-     - 提供自定义的请求模板和响应解析路径
-     - 支持任意格式的大模型 API
-   - 使用 `测试 AI 连接` 按钮验证配置是否正确
-   - 使用 `设为当前` 按钮切换当前使用的 API 配置
+### 工作统计与周报 / 月报 / 年报
 
-3. 配置代码访问权限
-   - 勾选 `允许读取代码内容` 可让 AI 分析代码变更
-   - 未勾选时只会读取 Git 提交信息，不会访问代码内容
+- **工作统计**：`Tools` → `工作统计`，按周/月等范围查看提交数、活跃日、按星期分布等（数据来自已保存的工作日志）。
+- **周报 / 月报 / 年报**：对应菜单项会汇总周期内的日志内容，便于汇报与归档。
 
-### 功能详解
+### AI 代码评审
 
-#### 1. 自动提醒
+**手动评审**
 
-**IDE 关闭提醒**
-- 关闭 IDEA 时，如果今日没有填写日志，会弹出提醒对话框
-- 可以选择立即生成、打开编辑或稍后填写
-- 可在设置中关闭此功能
+- **暂存区**：`Tools` → `代码评审`，或在提交窗口使用同一动作，对当前 **staged** 变更调用 AI。
+- **历史提交**：在 **Git Log** 中选提交 → 右键 **评审提交代码**。
 
-**定时提醒**
-- 在设置中启用定时提醒
-- 配置提醒时间（默认 17:30）
-- 每天到时会显示通知提醒填写日志
+**提交前自动评审**
 
-#### 2. 历史日志管理
+1. `Settings` → `Tools` → `WorkLog` → **代码评审**。
+2. 勾选 **启用代码评审功能**、**提交时自动触发代码评审**。
+3. 同时需在 **代码访问权限** 中允许读取代码，否则自动评审不会执行。
+4. 可配置 **最大 diff 字符数**（超出部分截断）、系统/用户提示词；用户模板支持 `{{files}}`、`{{diff}}`、`{{commit_message}}`。
 
-- 点击 `历史记录` 按钮查看所有日志
-- 支持搜索功能，可按日期或内容搜索
-- 支持预览和删除操作
+评审结束可在结果对话框中查看 Markdown 报告，并选择是否继续提交。
 
-#### 3. 导出功能
+### 提醒行为说明
 
-- 选择要导出的日志
-- 点击 `导出` 按钮
-- 选择导出格式（Markdown/HTML/PDF）
-- 选择保存位置
+- **项目关闭**：若开启「IDE 关闭时提醒」类选项，在**关闭项目**时若当日尚无日志，可能弹出提醒并**可阻止关闭**（具体以当前版本实现为准）。
+- **应用退出**：退出整个 IDE 时也可提示补写日志，避免仅依赖关项目习惯的用户漏填。
+- **定时提醒**：在 **提醒设置** 中配置时间，到点气球通知。
 
-#### 4. 存储位置
+### 存储位置
 
-- 默认存储在项目根目录的 `.worklogs/` 文件夹
-- 每个日志对应两个文件：
-  - `yyyy-MM-dd.md` - Markdown 格式的日志内容
-  - `yyyy-MM-dd.json` - 元数据（提交信息、创建时间等）
+- 默认目录：项目根下 **`.worklogs/`**（可在 **存储和导出** 中改为其他相对路径）。
+- 每个日期通常包含：`yyyy-MM-dd.md`（正文）与 `yyyy-MM-dd.json`（元数据，如提交列表摘要）。
 
-## 配置选项
+## 配置选项（设置页签摘要）
 
-### AI API 设置
-- **多配置管理**：支持保存多个 API 配置，方便切换
-- API URL
-- API Key
-- 模型名称
-- API 格式（OpenAI / 自定义）
-- 请求模板（自定义格式）
-- 响应 JSON 路径（自定义格式）
-
-### 自定义 API 格式
-- 请求模板（JSON）：使用 `{{prompt}}` 占位符
-- 响应 JSON 路径：如 `choices[0].message.content`
-
-### 代码访问权限
-- 允许读取代码内容
-- 记住我的选择
-
-### 提醒设置
-- 启用定时提醒
-- 提醒时间
-- IDE 关闭时提醒
-
-### 存储和导出
-- 默认导出格式
-- 存储路径
-
-### 提示词模板
-- 系统提示词
-- 用户提示词模板
-
-### 文件过滤设置
-- 排除的文件扩展名（如 `.ckpt`, `.pth`, `.bin` 等大型/二进制文件）
-- 排除的目录（如 `node_modules`, `dist`, `build` 等）
-- 文件大小限制（超过限制的文件不会获取 diff）
+| 页签 | 内容 |
+|------|------|
+| AI API 配置 | 多配置、格式、测试连接、当前配置 |
+| 代码访问权限 | 是否允许读代码、记住选择 |
+| 代码评审 | 总开关、提交前自动评审、diff 长度、评审提示词 |
+| 提醒设置 | 定时提醒、关闭/退出相关提醒 |
+| 存储和导出 | 默认导出格式、日志存储相对路径 |
+| 文件过滤 | 排除扩展名、排除目录、单文件 diff 大小上限（KB） |
+| 提示词模板 | 工作总结用的系统/用户模板（含 `{{commits}}`、`{{code_diff}}`、`{{#if hasCodeAccess}}` 等） |
+| 输出模板 | 最终 Markdown 骨架：`{{date}}`、`{{ai_summary}}`、`{{git_commits}}`、`{{code_changes}}` 等 |
 
 ## 隐私和安全
 
-- **代码访问控制**：严格遵守用户设置，未授权时绝不读取代码内容
-- **本地存储**：所有日志存储在本地项目目录，不会上传到任何服务器
-- **API Key 加密**：API Key 在配置文件中加密存储
-- **透明操作**：所有操作都会显示在 UI 中，用户可完全控制
+- **代码与 diff**：仅在用户允许读取代码时采集；文件过滤可减少敏感或大文件进入提示词。
+- **本地存储**：日志与元数据默认只在本地项目目录；除非你自己调用 AI API，否则第三方不会收到仓库内容。
+- **API Key**：由 IDE 设置持久化组件保存（具体加密策略以平台为准）；请勿将含 Key 的配置文件提交到公开仓库。
 
 ## 日志格式示例
 
 ```markdown
-# 工作日志 - 2025年12月16日 星期一
+# 工作日志 - 2026年4月4日 星期六
 
 ## 🤖 AI 工作总结
 
 今日主要完成了以下工作：
-1. 实现了工作日志插件的核心功能
-2. 添加了 Git 提交信息获取模块
-3. 集成了大模型 API 用于自动总结
+1. …
 
 ## 💾 Git 提交记录
 
-共 5 次提交：
+共 N 次提交：
 
-### 1. 实现 GitService 核心功能
+### 1. 示例提交说明
 - **提交哈希**: `a1b2c3d`
 - **作者**: Zhang San <zhangsan@example.com>
 - **时间**: 10:30:25
 - **文件数**: 3
 - **修改文件**:
-  - `src/main/kotlin/com/worklog/services/GitService.kt`
-  - `src/main/kotlin/com/worklog/models/GitCommit.kt`
-
-...
+  - `src/main/kotlin/...`
 
 ## 📝 详细内容
 
-今天主要完成了工作日志插件的开发...
+（自由书写）
 ```
 
 ## 开发
 
-### 项目结构
+### 项目结构（摘要）
 
 ```
 workLogPlugin/
 ├── src/main/kotlin/com/worklog/
-│   ├── actions/          # 动作相关
-│   ├── ui/               # UI 组件
-│   ├── services/         # 核心服务
-│   ├── models/           # 数据模型
-│   ├── settings/         # 配置管理
-│   ├── listeners/        # 事件监听器
-│   └── utils/            # 工具类
-├── src/main/resources/
-│   └── META-INF/
-│       └── plugin.xml    # 插件配置
+│   ├── actions/          # 菜单动作（生成日志、报告、评审等）
+│   ├── ui/               # 对话框与工具窗口
+│   ├── services/         # Git、工作日志、AI、统计、评审等
+│   ├── models/
+│   ├── settings/
+│   ├── listeners/      # 关闭提醒、提交 CheckinHandler、启动活动等
+│   └── utils/
+├── src/main/resources/META-INF/plugin.xml
 ├── build.gradle.kts
 └── gradle.properties
 ```
 
-### 构建和测试
+### 常用 Gradle 命令
 
 ```bash
-# 构建插件
-./gradlew buildPlugin
-
-# 运行测试
-./gradlew test
-
-# 在 IDE 中运行插件
-./gradlew runIde
+./gradlew buildPlugin    # 打插件 ZIP
+./gradlew runIde         # 沙箱 IDE 调试
+./gradlew test           # 单元测试
+./gradlew publishPlugin  # 发布到 Marketplace（需事先配置令牌等）
 ```
 
-### 发布
-
-```bash
-# 构建发布版本
-./gradlew buildPlugin
-
-# 发布到 JetBrains Marketplace
-./gradlew publishPlugin
-```
+本地 Git 行为快速验证：`./gradlew testGit`（可选 `-PtestDate=yyyy-MM-dd`，见 `build.gradle.kts` / `CLAUDE.md`）。
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request！
+欢迎 Issue 与 Pull Request。
 
 ## 许可证
 
@@ -252,60 +199,45 @@ workLogPlugin/
 
 ## 常见问题
 
-### Q: 使用插件需要安装 Java 吗？
-A: **不需要**！只要你的 IDEA 版本是 2023.1 或更高，就可以直接使用插件。
-- IntelliJ IDEA 自带完整的 Java 运行环境
-- 插件运行在 IDEA 的 JVM 中
-- 只有开发插件时才需要 JDK 17+
+### 必须使用 IntelliJ IDEA 吗？
 
-### Q: 插件如何获取 Git 提交信息？
-A: 插件使用本地 Git 命令行工具来获取提交记录，需要系统已安装 Git。
+任意基于 IntelliJ 平台且满足版本范围、并启用 Git/VCS 的产品均可尝试；本仓库默认以 **IntelliJ Community** 平台版本构建（`gradle.properties` 中 `platformType`）。
 
-### Q: AI 总结支持哪些大模型？
-A: 支持所有兼容 OpenAI API 格式的大模型，包括：
-- OpenAI GPT-4/GPT-3.5
-- Azure OpenAI
-- 阿里云通义千问
-- 百度文心一言
-- 以及其他自定义格式的 API
+### 没有配置 AI 能否使用？
 
-### Q: 不使用 AI 功能可以吗？
-A: 完全可以！AI 功能是可选的。即使不配置 AI API，插件仍然会：
-- 自动获取 Git 提交记录
-- 生成格式化的日志模板
-- 提供 Markdown 编辑器
-- 支持历史日志管理和导出
+可以。不配置 API 时仍可拉取 Git 提交、编辑 Markdown、使用历史与导出；统计与报告依赖你已保存的日志文件。
 
-### Q: 日志存储在哪里？
-A: 默认存储在项目根目录的 `.worklogs/` 文件夹中。你可以：
-- 将这个文件夹加入 Git 版本控制，与团队共享日志
-- 加入 `.gitignore`，保持日志私密
-- 在设置中修改存储路径
+### 代码评审失败或超时？
 
-### Q: 如何卸载插件？
-A: `Settings` → `Plugins` → 找到 `WorkLog` → 点击 `⚙️` → `Uninstall`
+检查网络与 API 配额；适当减小 **最大 diff 字符数**；在 **文件过滤** 中排除大文件与生成物目录。
 
-### Q: 生成日志时报 AI 400 错误怎么办？
-A: 这通常是因为发送给 AI 的内容过大。可以尝试：
-1. 在设置的「文件过滤」选项卡中调整排除的文件类型
-2. 降低文件大小限制
-3. 排除包含大型文件的目录（如 `models/`、`checkpoints/`）
+### 生成总结时报 HTTP 400？
+
+多为请求体过大：收紧文件过滤、降低单文件大小上限、排除模型权重等大文件目录。
+
+### 日志应该提交到 Git 吗？
+
+由团队策略决定：可纳入仓库便于备份与统计，也可加入 `.gitignore` 仅本地保留。
+
+### 如何卸载？
+
+`Settings` → `Plugins` → 找到 **WorkLog** → 卸载。
 
 ## 更新日志
 
+### 当前开发版（相对于仅 v1.0.0 叙述的增量能力）
+
+- AI **代码评审**（暂存区 / 历史提交 / 可选提交前自动执行）。
+- **工作统计**与 **周报 / 月报 / 年报**。
+- 可配置 **输出模板** 与更丰富的提示词占位符。
+- 依赖 **Git4Idea**，与 VCS 提交流程集成（CheckinHandler）。
+- 平台兼容区间与构建属性以 `gradle.properties` 为准。
+
 ### v1.0.0
-- 初始版本发布
-- 支持自动获取 Git 提交记录
-- AI 智能工作总结（支持 OpenAI 格式和自定义 API）
-- 多 API 配置管理
-- Markdown 格式日志编辑器
-- 历史日志管理和搜索
-- IDE 关闭提醒和定时提醒
-- 可配置的文件过滤规则
-- 多格式导出（Markdown/HTML/PDF）
+
+- 自动获取 Git 提交、可选 AI 工作总结、多 API 配置、Markdown 编辑与存储、历史与搜索、关闭/定时提醒、文件过滤、多格式导出。
 
 ## 联系方式
 
-- GitHub: https://github.com/yourusername/workLogPlugin
-- Email: support@worklog.com
-- Issue: https://github.com/yourusername/workLogPlugin/issues
+- 上游仓库：<https://github.com/sutao1/workLogPlugin>
+- 问题反馈：使用仓库 **Issues**（将 Email 等替换为你实际维护的联系方式即可）。

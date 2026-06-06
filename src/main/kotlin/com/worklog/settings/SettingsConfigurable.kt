@@ -3,15 +3,20 @@ package com.worklog.settings
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.FormBuilder
+import com.intellij.util.ui.JBUI
 import com.worklog.models.ApiConfig
 import com.worklog.models.ApiFormat
 import com.worklog.models.ExportFormat
 import com.worklog.services.AIService
+import com.worklog.services.PreCommitHookService
+import com.worklog.services.ReminderService
 import com.worklog.ui.ApiConfigDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.FlowLayout
 import javax.swing.*
 import javax.swing.table.AbstractTableModel
 
@@ -61,6 +67,13 @@ class SettingsConfigurable : Configurable {
     private val excludedDirectoriesArea = JTextArea(5, 50)
     private val maxFileSizeField = JBTextField()
 
+    // 代码评审设置
+    private val reviewEnabledCheckBox = JBCheckBox("启用代码评审功能")
+    private val reviewAutoRunCheckBox = JBCheckBox("提交时自动触发代码评审")
+    private val reviewMaxDiffCharsField = JBTextField()
+    private val reviewSystemPromptArea = JTextArea(5, 50)
+    private val reviewUserPromptArea = JTextArea(10, 50)
+
     override fun getDisplayName(): String {
         return "WorkLog"
     }
@@ -80,6 +93,7 @@ class SettingsConfigurable : Configurable {
         // 添加标签页（不立即创建内容）
         tabbedPane.addTab("AI API 配置", null)
         tabbedPane.addTab("代码访问权限", null)
+        tabbedPane.addTab("代码评审", null)
         tabbedPane.addTab("提醒设置", null)
         tabbedPane.addTab("存储和导出", null)
         tabbedPane.addTab("文件过滤", null)
@@ -94,11 +108,12 @@ class SettingsConfigurable : Configurable {
                 val panel = when (selectedIndex) {
                     0 -> panelCache.getOrPut(0) { createApiConfigPanel() }
                     1 -> panelCache.getOrPut(1) { createCodeAccessPanel() }
-                    2 -> panelCache.getOrPut(2) { createReminderPanel() }
-                    3 -> panelCache.getOrPut(3) { createStoragePanel() }
-                    4 -> panelCache.getOrPut(4) { createFilterPanel() }
-                    5 -> panelCache.getOrPut(5) { createPromptPanel() }
-                    6 -> panelCache.getOrPut(6) { createTemplatePanel() }
+                    2 -> panelCache.getOrPut(2) { createCodeReviewPanel() }
+                    3 -> panelCache.getOrPut(3) { createReminderPanel() }
+                    4 -> panelCache.getOrPut(4) { createStoragePanel() }
+                    5 -> panelCache.getOrPut(5) { createFilterPanel() }
+                    6 -> panelCache.getOrPut(6) { createPromptPanel() }
+                    7 -> panelCache.getOrPut(7) { createTemplatePanel() }
                     else -> JPanel()
                 }
                 tabbedPane.setComponentAt(selectedIndex, panel)
@@ -109,59 +124,91 @@ class SettingsConfigurable : Configurable {
         tabbedPane.setComponentAt(0, createApiConfigPanel())
 
         settingsPanel = JPanel(BorderLayout())
+        settingsPanel?.border = JBUI.Borders.empty(8)
         settingsPanel?.add(tabbedPane, BorderLayout.CENTER)
 
         return settingsPanel!!
     }
 
     private fun createCodeAccessPanel(): JPanel {
-        return FormBuilder.createFormBuilder()
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
             .addComponent(allowCodeAccessCheckBox)
             .addComponent(rememberCodeAccessCheckBox)
-            .addComponent(JBLabel("<html><small>允许读取代码后，AI 可以分析代码变更内容以生成更详细的总结</small></html>"))
+            .addComponent(helpLabel("允许读取代码后，AI 可以分析代码变更内容以生成更详细的总结。"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+        )
+    }
+
+    private fun createCodeReviewPanel(): JPanel {
+        reviewSystemPromptArea.lineWrap = true
+        reviewSystemPromptArea.wrapStyleWord = true
+        reviewUserPromptArea.lineWrap = true
+        reviewUserPromptArea.wrapStyleWord = true
+
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
+            .addComponent(reviewEnabledCheckBox)
+            .addComponent(reviewAutoRunCheckBox)
+            .addComponent(helpLabel("启用后，提交代码时将自动触发 AI 评审，评审完成后可选择继续提交或取消。"))
+            .addLabeledComponent(JBLabel("最大 diff 字符数:"), reviewMaxDiffCharsField, 1, false)
+            .addComponent(helpLabel("超过此长度的 diff 会被截断，默认 50000。"))
+            .addLabeledComponent(JBLabel("评审系统提示词:"), JBScrollPane(reviewSystemPromptArea), 1, true)
+            .addLabeledComponent(JBLabel("评审用户提示词模板:"), JBScrollPane(reviewUserPromptArea), 1, true)
+            .addComponent(helpLabel("可用变量：{{files}}, {{diff}}, {{commit_message}}"))
+            .addComponentFillVertically(JPanel(), 0)
+            .panel
+        )
     }
 
     private fun createReminderPanel(): JPanel {
-        return FormBuilder.createFormBuilder()
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
             .addComponent(reminderEnabledCheckBox)
             .addLabeledComponent(JBLabel("提醒时间 (HH:mm):"), reminderTimeField, 1, false)
             .addComponent(closeReminderCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
+        )
     }
 
     private fun createStoragePanel(): JPanel {
-        return FormBuilder.createFormBuilder()
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("默认导出格式:"), exportFormatComboBox, 1, false)
             .addLabeledComponent(JBLabel("存储路径:"), storageLocationField, 1, false)
-            .addComponent(JBLabel("<html><small>相对于项目根目录的路径</small></html>"))
+            .addComponent(helpLabel("相对于项目根目录的路径。"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+        )
     }
 
     private fun createPromptPanel(): JPanel {
-        val systemPromptScrollPane = JScrollPane(systemPromptArea)
-        val userPromptScrollPane = JScrollPane(userPromptTemplateArea)
-        return FormBuilder.createFormBuilder()
+        val systemPromptScrollPane = JBScrollPane(systemPromptArea)
+        val userPromptScrollPane = JBScrollPane(userPromptTemplateArea)
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("系统提示词:"), systemPromptScrollPane, 1, true)
             .addLabeledComponent(JBLabel("用户提示词模板:"), userPromptScrollPane, 1, true)
-            .addComponent(JBLabel("<html><small>可用变量: {{commits}}, {{code_diff}}, {{#if hasCodeAccess}}...{{/if}}</small></html>"))
+            .addComponent(helpLabel("可用变量：{{commits}}, {{code_diff}}, {{#if hasCodeAccess}}...{{/if}}"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+        )
     }
 
     private fun createTemplatePanel(): JPanel {
-        val outputTemplateScrollPane = JScrollPane(workLogOutputTemplateArea)
-        val examplesScrollPane = JScrollPane(templateExamplesArea)
-        return FormBuilder.createFormBuilder()
+        val outputTemplateScrollPane = JBScrollPane(workLogOutputTemplateArea)
+        val examplesScrollPane = JBScrollPane(templateExamplesArea)
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("工作日志输出模板:"), outputTemplateScrollPane, 1, true)
-            .addComponent(JBLabel("<html><small>可用变量: {{date}}, {{ai_summary}}, {{git_commits}}, {{code_changes}}<br>条件语法: {{#if hasCodeAccess}}...{{/if}}</small></html>"))
+            .addComponent(helpLabel("可用变量：{{date}}, {{ai_summary}}, {{git_commits}}, {{code_changes}}。条件语法：{{#if hasCodeAccess}}...{{/if}}"))
             .addLabeledComponent(JBLabel("模板示例（仅供参考）:"), examplesScrollPane, 1, true)
-            .addComponent(JBLabel("<html><small>提示：可以从示例中复制模板格式到上方的输出模板中</small></html>"))
+            .addComponent(helpLabel("可以从示例中复制模板格式到上方的输出模板中。"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+        )
     }
 
     private fun createFilterPanel(): JPanel {
@@ -170,28 +217,38 @@ class SettingsConfigurable : Configurable {
         excludedDirectoriesArea.lineWrap = true
         excludedDirectoriesArea.wrapStyleWord = true
 
-        val extensionsScrollPane = JScrollPane(excludedFileExtensionsArea)
-        val directoriesScrollPane = JScrollPane(excludedDirectoriesArea)
+        val extensionsScrollPane = JBScrollPane(excludedFileExtensionsArea)
+        val directoriesScrollPane = JBScrollPane(excludedDirectoriesArea)
 
-        return FormBuilder.createFormBuilder()
+        return wrapSettingsPage(
+            FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("排除的文件扩展名:"), extensionsScrollPane, 1, true)
-            .addComponent(JBLabel("<html><small>用逗号分隔，例如: ckpt,pth,bin,pb<br>这些类型的文件不会被包含在 Git diff 中，避免发送大文件到 AI</small></html>"))
+            .addComponent(helpLabel("用逗号分隔，例如：ckpt,pth,bin,pb。这些类型不会被包含在 Git diff 中。"))
             .addLabeledComponent(JBLabel("排除的目录:"), directoriesScrollPane, 1, true)
-            .addComponent(JBLabel("<html><small>用逗号分隔，例如: /node_modules/,/dist/,/build/</small></html>"))
+            .addComponent(helpLabel("用逗号分隔，例如：/node_modules/,/dist/,/build/。"))
             .addLabeledComponent(JBLabel("文件大小限制 (KB):"), maxFileSizeField, 1, false)
-            .addComponent(JBLabel("<html><small>超过此大小的文件不会获取 diff（默认 1024KB = 1MB）</small></html>"))
+            .addComponent(helpLabel("超过此大小的文件不会获取 diff，默认 1024KB。"))
             .addComponentFillVertically(JPanel(), 0)
             .panel
+        )
     }
 
     private fun loadSettings(settings: AppSettingsState) {
         // 加载 API 配置列表
         apiConfigTableModel.configs.clear()
-        apiConfigTableModel.configs.addAll(settings.apiConfigs.map { it.copy() })
+        apiConfigTableModel.configs.addAll(settings.apiConfigs.map { config ->
+            config.copy(apiKey = ApiKeyStore.getApiKey(config.id, config.apiKey))
+        })
         apiConfigTableModel.fireTableDataChanged()
 
         allowCodeAccessCheckBox.isSelected = settings.allowCodeAccess
         rememberCodeAccessCheckBox.isSelected = settings.rememberCodeAccessChoice
+
+        reviewEnabledCheckBox.isSelected = settings.reviewEnabled
+        reviewAutoRunCheckBox.isSelected = settings.reviewAutoRunBeforeCommit
+        reviewMaxDiffCharsField.text = settings.reviewMaxDiffChars.toString()
+        reviewSystemPromptArea.text = settings.reviewSystemPrompt
+        reviewUserPromptArea.text = settings.reviewUserPromptTemplate
 
         reminderEnabledCheckBox.isSelected = settings.reminderEnabled
         reminderTimeField.text = settings.reminderTime
@@ -229,6 +286,11 @@ class SettingsConfigurable : Configurable {
 
         return allowCodeAccessCheckBox.isSelected != settings.allowCodeAccess ||
                 rememberCodeAccessCheckBox.isSelected != settings.rememberCodeAccessChoice ||
+                reviewEnabledCheckBox.isSelected != settings.reviewEnabled ||
+                reviewAutoRunCheckBox.isSelected != settings.reviewAutoRunBeforeCommit ||
+                reviewMaxDiffCharsField.text != settings.reviewMaxDiffChars.toString() ||
+                reviewSystemPromptArea.text != settings.reviewSystemPrompt ||
+                reviewUserPromptArea.text != settings.reviewUserPromptTemplate ||
                 reminderEnabledCheckBox.isSelected != settings.reminderEnabled ||
                 reminderTimeField.text != settings.reminderTime ||
                 closeReminderCheckBox.isSelected != settings.closeReminderEnabled ||
@@ -249,11 +311,12 @@ class SettingsConfigurable : Configurable {
         // 保存 API 配置列表（使用 data class 的 copy 保持状态）
         settings.apiConfigs.clear()
         settings.apiConfigs.addAll(apiConfigTableModel.configs.map { config ->
+            ApiKeyStore.setApiKey(config.id, config.apiKey)
             config.copy(
                 id = config.id,
                 name = config.name,
                 apiUrl = config.apiUrl,
-                apiKey = config.apiKey,
+                apiKey = "",
                 modelName = config.modelName,
                 apiFormat = config.apiFormat,
                 customRequestTemplate = config.customRequestTemplate,
@@ -262,18 +325,14 @@ class SettingsConfigurable : Configurable {
             )
         })
 
-        // 调试日志
-        println("=== WorkLog Settings Apply ===")
-        println("Saving ${settings.apiConfigs.size} API configs")
-        settings.apiConfigs.forEachIndexed { index, config ->
-            println("Config $index: ${config.name}, enabled=${config.isEnabled}, hasKey=${config.apiKey.isNotBlank()}")
-        }
-        val activeConfig = settings.getActiveApiConfig()
-        println("Active config after save: ${activeConfig?.name}, key=${activeConfig?.apiKey?.take(4)}...")
-        println("==============================")
-
         settings.allowCodeAccess = allowCodeAccessCheckBox.isSelected
         settings.rememberCodeAccessChoice = rememberCodeAccessCheckBox.isSelected
+
+        settings.reviewEnabled = reviewEnabledCheckBox.isSelected
+        settings.reviewAutoRunBeforeCommit = reviewAutoRunCheckBox.isSelected
+        settings.reviewMaxDiffChars = (reviewMaxDiffCharsField.text.toIntOrNull() ?: 50000).coerceAtLeast(1000)
+        settings.reviewSystemPrompt = reviewSystemPromptArea.text
+        settings.reviewUserPromptTemplate = reviewUserPromptArea.text
 
         settings.reminderEnabled = reminderEnabledCheckBox.isSelected
         settings.reminderTime = reminderTimeField.text
@@ -295,26 +354,55 @@ class SettingsConfigurable : Configurable {
         } catch (e: Exception) {
             settings.maxFileSizeKb = 1024
         }
+
+        ProjectManager.getInstance().openProjects
+            .filter { !it.isDisposed }
+            .forEach {
+                it.getService(ReminderService::class.java).restart()
+                try {
+                    it.getService(PreCommitHookService::class.java).installOrUpdateHookIfNeeded()
+                } catch (e: Exception) {
+                    Messages.showWarningDialog(
+                        it,
+                        "Pre-commit hook 同步失败：${e.message}",
+                        "WorkLog"
+                    )
+                }
+            }
     }
 
     override fun reset() {
         loadSettings(AppSettingsState.getInstance())
     }
 
+    private fun wrapSettingsPage(content: JPanel): JPanel {
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.empty(8)
+        content.border = JBUI.Borders.empty()
+        panel.add(content, BorderLayout.CENTER)
+        return panel
+    }
+
+    private fun helpLabel(text: String): JBLabel {
+        return JBLabel("<html><small>$text</small></html>").apply {
+            foreground = JBColor.GRAY
+        }
+    }
+
     /**
      * 创建 API 配置面板（表格形式）
      */
     private fun createApiConfigPanel(): JPanel {
-        val panel = JPanel(BorderLayout(5, 5))
+        val panel = JPanel(BorderLayout(0, 8))
 
         // 配置表格
         apiConfigTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-        val scrollPane = JScrollPane(apiConfigTable)
+        apiConfigTable.rowHeight = JBUI.scale(26)
+        val scrollPane = JBScrollPane(apiConfigTable)
         scrollPane.preferredSize = Dimension(600, 200)
 
         // 按钮面板
-        val buttonPanel = JPanel()
-        buttonPanel.layout = BoxLayout(buttonPanel, BoxLayout.Y_AXIS)
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
 
         val addButton = JButton("添加")
         addButton.addActionListener { addApiConfig() }
@@ -335,22 +423,16 @@ class SettingsConfigurable : Configurable {
         testButton.addActionListener { testSelectedApiConfig() }
 
         buttonPanel.add(addButton)
-        buttonPanel.add(Box.createVerticalStrut(5))
         buttonPanel.add(editButton)
-        buttonPanel.add(Box.createVerticalStrut(5))
-        buttonPanel.add(deleteButton)
-        buttonPanel.add(Box.createVerticalStrut(5))
         buttonPanel.add(copyButton)
-        buttonPanel.add(Box.createVerticalStrut(5))
         buttonPanel.add(enableButton)
-        buttonPanel.add(Box.createVerticalStrut(10))
+        buttonPanel.add(deleteButton)
         buttonPanel.add(testButton)
 
+        panel.add(buttonPanel, BorderLayout.NORTH)
         panel.add(scrollPane, BorderLayout.CENTER)
-        panel.add(buttonPanel, BorderLayout.EAST)
 
-        val helpLabel = JBLabel("<html><small>双击表格行可以编辑配置。每次只能启用一个 API 配置。</small></html>")
-        panel.add(helpLabel, BorderLayout.SOUTH)
+        panel.add(helpLabel("双击表格行可以编辑配置。每次只能启用一个 API 配置。"), BorderLayout.SOUTH)
 
         // 双击编辑
         apiConfigTable.addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -361,7 +443,7 @@ class SettingsConfigurable : Configurable {
             }
         })
 
-        return panel
+        return wrapSettingsPage(panel)
     }
 
     private fun addApiConfig() {
@@ -449,7 +531,19 @@ class SettingsConfigurable : Configurable {
 
         // 先保存当前表格中的配置到 settings（临时）
         val tempSettings = AppSettingsState.getInstance()
-        val originalConfigs = tempSettings.apiConfigs.toList()
+        val originalConfigs = tempSettings.apiConfigs.map { it.copy() }
+        val originalApiKeys = originalConfigs.associate { config ->
+            config.id to ApiKeyStore.getApiKey(config.id, config.apiKey)
+        }
+        val testedConfigIds = apiConfigTableModel.configs.map { it.id }.toSet()
+        fun restoreApiKeys() {
+            testedConfigIds.forEach { configId ->
+                ApiKeyStore.setApiKey(configId, originalApiKeys[configId].orEmpty())
+            }
+            originalApiKeys.forEach { (configId, apiKey) ->
+                ApiKeyStore.setApiKey(configId, apiKey)
+            }
+        }
 
         try {
             // 应用当前表格的配置进行测试（保持启用状态）
@@ -468,6 +562,9 @@ class SettingsConfigurable : Configurable {
                 )
             })
             tempSettings.setActiveApiConfig(apiConfigTableModel.configs[selectedRow].id)
+            apiConfigTableModel.configs.forEach { config ->
+                ApiKeyStore.setApiKey(config.id, config.apiKey)
+            }
 
             // 异步测试连接
             CoroutineScope(Dispatchers.Main).launch {
@@ -481,20 +578,21 @@ class SettingsConfigurable : Configurable {
                         "测试成功"
                     )
                 } catch (e: Exception) {
-                    // 测试失败，恢复原始配置
-                    tempSettings.apiConfigs.clear()
-                    tempSettings.apiConfigs.addAll(originalConfigs)
-
                     Messages.showErrorDialog(
                         "AI 接口测试失败：\n\n${e.message}\n\n请检查配置是否正确",
                         "测试失败"
                     )
+                } finally {
+                    tempSettings.apiConfigs.clear()
+                    tempSettings.apiConfigs.addAll(originalConfigs.map { it.copy() })
+                    restoreApiKeys()
                 }
             }
         } catch (e: Exception) {
             // 发生异常，恢复原始配置
             tempSettings.apiConfigs.clear()
-            tempSettings.apiConfigs.addAll(originalConfigs)
+            tempSettings.apiConfigs.addAll(originalConfigs.map { it.copy() })
+            restoreApiKeys()
             Messages.showErrorDialog("测试失败：${e.message}", "错误")
         }
     }

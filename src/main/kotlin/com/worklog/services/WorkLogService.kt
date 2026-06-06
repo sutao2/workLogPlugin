@@ -23,12 +23,16 @@ class WorkLogService(private val project: Project) {
     /**
      * 创建新的工作日志
      */
-    fun createWorkLog(date: LocalDate, includeCode: Boolean = false): WorkLog {
+    fun createWorkLog(
+        date: LocalDate,
+        includeCode: Boolean = false,
+        includeUncommitted: Boolean = false
+    ): WorkLog {
         // 获取 Git 提交记录
         val commits = gitService.getCommitsByDate(date, includeCode).toMutableList()
 
-        // 如果是今天且允许读取代码，尝试获取未提交的变更
-        if (date == LocalDate.now() && includeCode) {
+        // 仅在用户明确选择时，才将今天的未提交变更加入日志。
+        if (date == LocalDate.now() && includeCode && includeUncommitted) {
             val uncommittedCommit = gitService.getUncommittedChangesAsCommit(includeCode)
             if (uncommittedCommit != null) {
                 commits.add(uncommittedCommit)
@@ -74,6 +78,7 @@ class WorkLogService(private val project: Project) {
                     author = commit.author,
                     authorEmail = commit.authorEmail,
                     timestamp = commit.timestamp.toString(),
+                    files = commit.files,
                     filesCount = commit.files.size
                 )
             }
@@ -92,7 +97,21 @@ class WorkLogService(private val project: Project) {
             WorkLog(
                 date = date,
                 content = content,
-                gitCommits = emptyList(),  // 从元数据重建 Git 提交列表
+                gitCommits = metadata.gitCommits.map { commit ->
+                    com.worklog.models.GitCommit(
+                        hash = commit.hash,
+                        shortHash = commit.shortHash,
+                        message = commit.message,
+                        author = commit.author,
+                        authorEmail = commit.authorEmail,
+                        timestamp = Instant.parse(commit.timestamp),
+                        files = if (commit.files.isNotEmpty()) {
+                            commit.files
+                        } else {
+                            List(commit.filesCount) { index -> "${commit.shortHash}:file-$index" }
+                        }
+                    )
+                },
                 hasCodeAccess = metadata.hasCodeAccess,
                 createdAt = Instant.parse(metadata.createdAt),
                 updatedAt = Instant.parse(metadata.updatedAt)
@@ -144,7 +163,7 @@ class WorkLogService(private val project: Project) {
      * 更新工作日志内容（仅更新用户编辑的部分）
      */
     fun updateWorkLogContent(date: LocalDate, newContent: String) {
-        val workLog = loadWorkLog(date) ?: return
+        val workLog = loadWorkLog(date) ?: WorkLog.create(date)
         workLog.content = newContent
         saveWorkLog(workLog)
     }

@@ -19,20 +19,14 @@ import java.time.LocalDate
 class AppCloseListener : AppLifecycleListener {
 
     override fun appWillBeClosed(isRestart: Boolean) {
-        // 使用共享状态管理器防止重复弹窗
-        if (!CloseReminderState.tryAcquireDialogLock()) {
-            return  // 已经显示过对话框，直接返回
-        }
+        CloseReminderState.withDialogLock {
+            val settings = AppSettingsState.getInstance()
 
-        val settings = AppSettingsState.getInstance()
+            // 如果禁用了关闭提醒，直接返回
+            if (!settings.closeReminderEnabled) {
+                return@withDialogLock
+            }
 
-        // 如果禁用了关闭提醒，直接返回
-        if (!settings.closeReminderEnabled) {
-            CloseReminderState.releaseDialogLock()
-            return
-        }
-
-        try {
             // 获取所有打开的项目
             val projects = ProjectManager.getInstance().openProjects
 
@@ -53,13 +47,15 @@ class AppCloseListener : AppLifecycleListener {
                 }
             }
 
+            // 找到一个可用的 project 作为对话框父组件
+            val activeProject = projects.firstOrNull { !it.isDisposed }
+
             // 在EDT线程中显示对话框
             ApplicationManager.getApplication().invokeAndWait {
                 if (hasProjectWithoutLog) {
-                    // 有项目没有日志，给出提醒（但无法阻止关闭）
                     val options = arrayOf("知道了", "不再提醒")
                     val result = Messages.showDialog(
-                        null,
+                        activeProject,
                         "今天还没有填写工作日志！\n\n" +
                         "建议：下次关闭项目时会提示您填写日志。\n" +
                         "您也可以随时通过工具窗口手动填写。",
@@ -70,21 +66,18 @@ class AppCloseListener : AppLifecycleListener {
                     )
 
                     if (result == 1) {
-                        // 不再提醒
                         settings.closeReminderEnabled = false
                     }
                 } else if (hasProjectWithLog) {
-                    // 所有项目都有日志，提供复制选项
-                    val project = projects.firstOrNull { !it.isDisposed }
-                    if (project != null) {
-                        val workLogService = project.getService(WorkLogService::class.java)
+                    if (activeProject != null) {
+                        val workLogService = activeProject.getService(WorkLogService::class.java)
                         val workLog = workLogService?.loadWorkLog(LocalDate.now())
                         val content = workLog?.content ?: ""
 
                         if (content.isNotEmpty()) {
                             val options = arrayOf("复制并关闭", "直接关闭")
                             val result = Messages.showDialog(
-                                null,
+                                activeProject,
                                 "今天的工作日志已生成，是否需要复制到剪贴板？",
                                 "工作日志提醒",
                                 options,
@@ -94,14 +87,12 @@ class AppCloseListener : AppLifecycleListener {
 
                             if (result == 0) {
                                 CopyPasteManager.getInstance().setContents(StringSelection(content))
-                                Messages.showInfoMessage(project, "工作日志已复制到剪贴板", "复制成功")
+                                Messages.showInfoMessage(activeProject, "工作日志已复制到剪贴板", "复制成功")
                             }
                         }
                     }
                 }
             }
-        } finally {
-            CloseReminderState.releaseDialogLock()
         }
     }
 }

@@ -2,14 +2,17 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.JBUI
 import com.worklog.services.WorkLogService
 import com.worklog.utils.StorageUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Font
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import javax.swing.*
@@ -36,12 +39,13 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 8))
         panel.preferredSize = Dimension(800, 600)
+        panel.border = JBUI.Borders.empty(8)
 
         // 顶部搜索栏
-        val searchPanel = JPanel(BorderLayout())
-        searchPanel.add(JBLabel("搜索: "), BorderLayout.WEST)
+        val searchPanel = JPanel(BorderLayout(8, 0))
+        searchPanel.add(JBLabel("搜索:"), BorderLayout.WEST)
         searchField.addActionListener {
             filterDates()
         }
@@ -55,6 +59,8 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
 
         // 中间分割面板
         val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT)
+        splitPane.border = BorderFactory.createEmptyBorder()
+        splitPane.dividerSize = JBUI.scale(7)
 
         // 左侧日期列表
         dateList.selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -80,6 +86,7 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
         }
 
         val listScrollPane = JBScrollPane(dateList)
+        listScrollPane.border = BorderFactory.createLineBorder(JBColor.border())
         listScrollPane.preferredSize = Dimension(250, 0)
         splitPane.leftComponent = listScrollPane
 
@@ -87,10 +94,13 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
         previewArea.isEditable = false
         previewArea.lineWrap = true
         previewArea.wrapStyleWord = true
+        previewArea.margin = JBUI.insets(10)
+        previewArea.font = Font("Monospaced", Font.PLAIN, 13)
         val previewScrollPane = JBScrollPane(previewArea)
+        previewScrollPane.border = BorderFactory.createLineBorder(JBColor.border())
         splitPane.rightComponent = previewScrollPane
 
-        splitPane.dividerLocation = 250
+        splitPane.dividerLocation = JBUI.scale(250)
         panel.add(splitPane, BorderLayout.CENTER)
 
         return panel

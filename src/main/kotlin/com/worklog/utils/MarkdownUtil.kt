@@ -12,6 +12,10 @@ import java.time.format.DateTimeFormatter
 object MarkdownUtil {
     private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy年MM月dd日 EEEE")
     private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss")
+    private val THINK_TAG_REGEX = Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL)
+    private val REASONING_TAG_REGEX = Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL)
+    private val CONDITIONAL_BLOCK_REGEX = Regex("\\{\\{#if hasCodeAccess}}([\\s\\S]*?)\\{\\{/if}}")
+    private val CONDITIONAL_BLOCK_STRIP_REGEX = Regex("\\{\\{#if hasCodeAccess}}[\\s\\S]*?\\{\\{/if}}")
 
     /**
      * 生成工作日志模板
@@ -134,8 +138,8 @@ object MarkdownUtil {
         if (!aiSummary.isNullOrBlank()) {
             // 清理AI输出中可能包含的思考过程标签
             var cleanedSummary = aiSummary.trim()
-            cleanedSummary = cleanedSummary.replace(Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL), "")
-            cleanedSummary = cleanedSummary.replace(Regex("<reasoning>.*?</reasoning>", RegexOption.DOT_MATCHES_ALL), "")
+            cleanedSummary = cleanedSummary.replace(THINK_TAG_REGEX, "")
+            cleanedSummary = cleanedSummary.replace(REASONING_TAG_REGEX, "")
             cleanedSummary = cleanedSummary.trim()
 
             template = template.replace("{{ai_summary}}", cleanedSummary)
@@ -154,13 +158,13 @@ object MarkdownUtil {
         // 处理代码变更部分（条件模板）
         if (includeCodeDiff && workLog.hasCodeAccess) {
             val codeDiff = formatCodeDiff(workLog.gitCommits, includeFullDiff = false)
-            template = template.replace(Regex("\\{\\{#if hasCodeAccess}}([\\s\\S]*?)\\{\\{/if}}")) { matchResult ->
+            template = template.replace(CONDITIONAL_BLOCK_REGEX) { matchResult ->
                 val content = matchResult.groupValues[1]
                 content.replace("{{code_changes}}", if (codeDiff.isNotBlank()) codeDiff else "无代码变更")
             }
         } else {
             // 移除条件块
-            template = template.replace(Regex("\\{\\{#if hasCodeAccess}}[\\s\\S]*?\\{\\{/if}}"), "")
+            template = template.replace(CONDITIONAL_BLOCK_STRIP_REGEX, "")
         }
 
         return template.trim()
@@ -179,11 +183,15 @@ object MarkdownUtil {
 
             if (includeCode && commit.diff != null) {
                 sb.appendLine("代码变更:")
-                // 限制发送给 AI 的代码长度
-                val diffLines = commit.diff.lines()
-                sb.appendLine(diffLines.take(50).joinToString("\n"))
-                if (diffLines.size > 50) {
-                    sb.appendLine("... (省略)")
+                val diff = commit.diff
+                val cutoff = nthLineEndIndex(diff, 50)
+                if (cutoff >= 0) {
+                    sb.appendLine(diff.substring(0, cutoff))
+                    if (cutoff < diff.length) {
+                        sb.appendLine("... (省略)")
+                    }
+                } else {
+                    sb.appendLine(diff)
                 }
             }
 
@@ -191,5 +199,18 @@ object MarkdownUtil {
         }
 
         return sb.toString()
+    }
+
+    private fun nthLineEndIndex(text: String, maxLines: Int): Int {
+        var lineCount = 0
+        text.forEachIndexed { index, ch ->
+            if (ch == '\n') {
+                lineCount++
+                if (lineCount >= maxLines) {
+                    return index
+                }
+            }
+        }
+        return -1
     }
 }

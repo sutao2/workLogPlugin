@@ -1,8 +1,9 @@
 package com.worklog.services
 
-import com.intellij.notification.Notification
+import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.worklog.settings.AppSettingsState
@@ -18,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 负责定时提醒用户填写工作日志
  */
 @Service(Service.Level.PROJECT)
-class ReminderService(private val project: Project) {
+class ReminderService(private val project: Project) : Disposable {
 
     private var scheduler: ScheduledExecutorService? = null
     private val isRunning = AtomicBoolean(false)
@@ -52,8 +53,11 @@ class ReminderService(private val project: Project) {
         scheduler?.shutdown()
         try {
             // 等待任务完成，最多等待 2 秒
-            scheduler?.awaitTermination(2, TimeUnit.SECONDS)
+            if (scheduler?.awaitTermination(2, TimeUnit.SECONDS) == false) {
+                scheduler?.shutdownNow()
+            }
         } catch (e: InterruptedException) {
+            scheduler?.shutdownNow()
             Thread.currentThread().interrupt()
         }
         scheduler = null
@@ -108,12 +112,13 @@ class ReminderService(private val project: Project) {
             return  // 已有日志，不再提醒
         }
 
-        val notification = Notification(
-            "WorkLog.Notification",
-            "工作日志提醒",
-            "今日工作日志尚未填写，点击此处快速生成。",
-            NotificationType.INFORMATION
-        )
+        val notification = NotificationGroupManager.getInstance()
+            .getNotificationGroup("WorkLog Notifications")
+            .createNotification(
+                "工作日志提醒",
+                "今日工作日志尚未填写，点击此处快速生成。",
+                NotificationType.INFORMATION
+            )
 
         notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("立即生成") {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
@@ -139,5 +144,9 @@ class ReminderService(private val project: Project) {
      */
     fun restart() {
         start()
+    }
+
+    override fun dispose() {
+        stop()
     }
 }

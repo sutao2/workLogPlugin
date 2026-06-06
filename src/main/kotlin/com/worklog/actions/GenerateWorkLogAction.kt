@@ -25,12 +25,13 @@ class GenerateWorkLogAction : AnAction() {
         if (dialog.showAndGet()) {
             val date = dialog.getSelectedDate()
             val includeCode = dialog.isIncludeCode()
+            val includeUncommitted = dialog.isIncludeUncommitted()
 
             // 异步生成日志
             scope.launch {
                 try {
                     val workLogService = project.getService(WorkLogService::class.java)
-                    val workLog = workLogService.createWorkLog(date, includeCode)
+                    val workLog = workLogService.createWorkLog(date, includeCode, includeUncommitted)
 
                     // 如果配置了 AI，调用 AI 生成总结
                     val settings = com.worklog.settings.AppSettingsState.getInstance()

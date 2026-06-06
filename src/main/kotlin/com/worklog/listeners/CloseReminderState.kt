@@ -24,19 +24,14 @@ object CloseReminderState {
         // 检查是否在冷却期内（60秒内显示过对话框）
         val lastTime = lastDialogTimestamp.get()
         if (now - lastTime < DIALOG_COOLDOWN_MS) {
-            println("WorkLog: 对话框在冷却期内，跳过显示 (距上次: ${(now - lastTime) / 1000}秒)")
             return false
         }
 
         // 使用 CAS 操作确保原子性
         if (!isShowingDialog.compareAndSet(false, true)) {
-            println("WorkLog: 对话框正在显示中，跳过")
             return false
         }
 
-        // 成功获取锁，更新时间戳
-        lastDialogTimestamp.set(now)
-        println("WorkLog: 已获取对话框显示权限")
         return true
     }
 
@@ -44,10 +39,29 @@ object CloseReminderState {
      * 释放对话框显示权限
      */
     fun releaseDialogLock() {
-        val released = isShowingDialog.compareAndSet(true, false)
-        if (released) {
-            println("WorkLog: 已释放对话框显示权限")
+        markDialogShown()
+        isShowingDialog.compareAndSet(true, false)
+    }
+
+    fun releaseDialogLockWithoutCooldown() {
+        isShowingDialog.compareAndSet(true, false)
+    }
+
+    fun markDialogShown() {
+        lastDialogTimestamp.set(System.currentTimeMillis())
+    }
+
+    /**
+     * 在 lock 保护下执行操作，确保异常时也释放锁
+     */
+    inline fun withDialogLock(action: () -> Unit): Boolean {
+        if (!tryAcquireDialogLock()) return false
+        try {
+            action()
+        } finally {
+            releaseDialogLock()
         }
+        return true
     }
 
     /**
@@ -63,6 +77,5 @@ object CloseReminderState {
     fun forceReset() {
         isShowingDialog.set(false)
         lastDialogTimestamp.set(0L)
-        println("WorkLog: 状态已强制重置")
     }
 }

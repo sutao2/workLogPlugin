@@ -7,11 +7,12 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.util.ui.JBUI
 import com.worklog.services.WorkLogService
 import com.worklog.settings.AppSettingsState
-import com.worklog.utils.StorageUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,7 +24,6 @@ import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import javax.swing.*
-import javax.swing.border.EmptyBorder
 
 /**
  * 工作日志主界面 - 简洁版
@@ -40,10 +40,10 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     private val commitCountLabel = JBLabel("提交: 0")
     private val wordCountLabel = JBLabel("字数: 0")
 
-    private val panel = JPanel(BorderLayout(5, 5))
+    private val panel = JPanel(BorderLayout(0, 8))
 
     init {
-        panel.border = EmptyBorder(8, 8, 8, 8)
+        panel.border = JBUI.Borders.empty(8)
         initUI()
         loadAvailableDates()
     }
@@ -64,9 +64,13 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
 
     private fun createToolbar(): JPanel {
         val toolbar = JPanel(BorderLayout())
+        toolbar.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+            JBUI.Borders.empty(0, 0, 8, 0)
+        )
 
         // 左侧面板 - 主要操作按钮
-        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 2))
+        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
 
         // 日期标签
         leftPanel.add(JBLabel("日期:"))
@@ -102,7 +106,7 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         toolbar.add(leftPanel, BorderLayout.WEST)
 
         // 右侧面板 - 设置和更多按钮
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 2))
+        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 0))
 
         // 设置按钮（使用 IDEA 标准齿轮图标）
         val settingsButton = JButton(AllIcons.General.Settings)
@@ -153,6 +157,7 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
 
     private fun createButton(text: String, action: () -> Unit): JButton {
         val button = JButton(text)
+        button.margin = JBUI.insets(2, 10)
         button.addActionListener { action() }
         return button
     }
@@ -198,14 +203,23 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     }
 
     private fun createEditorPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.border = BorderFactory.createTitledBorder("工作日志编辑器")
+        val panel = JPanel(BorderLayout(0, 6))
+        panel.border = JBUI.Borders.empty()
+
+        val header = JPanel(BorderLayout())
+        val titleLabel = JBLabel("工作日志")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
+        val hintLabel = JBLabel("Markdown 内容会保存到项目工作日志目录")
+        hintLabel.foreground = JBColor.GRAY
+        header.add(titleLabel, BorderLayout.WEST)
+        header.add(hintLabel, BorderLayout.EAST)
+        panel.add(header, BorderLayout.NORTH)
 
         editorArea.lineWrap = true
         editorArea.wrapStyleWord = true
         editorArea.font = Font("Monospaced", Font.PLAIN, 13)
         editorArea.tabSize = 4
-        editorArea.margin = Insets(5, 5, 5, 5)
+        editorArea.margin = JBUI.insets(10)
 
         // 字数统计
         editorArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
@@ -215,13 +229,21 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         })
 
         val scrollPane = JBScrollPane(editorArea)
+        scrollPane.border = BorderFactory.createLineBorder(JBColor.border())
         panel.add(scrollPane, BorderLayout.CENTER)
 
         return panel
     }
 
     private fun createStatusBar(): JPanel {
-        val statusBar = JPanel(FlowLayout(FlowLayout.LEFT, 10, 2))
+        val statusBar = JPanel(FlowLayout(FlowLayout.LEFT, 10, 0))
+        statusBar.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor.border()),
+            JBUI.Borders.empty(6, 0, 0, 0)
+        )
+        statusLabel.foreground = JBColor.GRAY
+        commitCountLabel.foreground = JBColor.GRAY
+        wordCountLabel.foreground = JBColor.GRAY
         statusBar.add(statusLabel)
         statusBar.add(JSeparator(SwingConstants.VERTICAL))
         statusBar.add(commitCountLabel)
@@ -266,7 +288,11 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     }
 
     private fun loadWorkLog() {
-        val selectedDate = dateComboBox.selectedItem as? LocalDate ?: return
+        val selectedDate = getSelectedDateFromComboBox()
+        if (selectedDate == null) {
+            statusLabel.text = "日期格式应为 yyyy-MM-dd"
+            return
+        }
 
         val workLog = workLogService.loadWorkLog(selectedDate)
         if (workLog != null) {
@@ -305,7 +331,11 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     }
 
     private fun saveWorkLog() {
-        val selectedDate = dateComboBox.selectedItem as? LocalDate ?: return
+        val selectedDate = getSelectedDateFromComboBox()
+        if (selectedDate == null) {
+            JOptionPane.showMessageDialog(panel, "日期格式应为 yyyy-MM-dd", "保存失败", JOptionPane.WARNING_MESSAGE)
+            return
+        }
         val content = editorArea.text ?: ""
 
         if (content.isBlank()) {
@@ -314,7 +344,7 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         }
 
         try {
-            StorageUtil.writeWorkLog(project, selectedDate, content)
+            workLogService.updateWorkLogContent(selectedDate, content)
             statusLabel.text = "已保存: $selectedDate"
             JOptionPane.showMessageDialog(panel, "工作日志已保存", "保存成功", JOptionPane.INFORMATION_MESSAGE)
             loadAvailableDates()
@@ -327,11 +357,11 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     private fun showGenerateDialog() {
         val dialog = GenerateWorkLogDialog(project)
         if (dialog.showAndGet()) {
-            generateWorkLog(dialog.getSelectedDate(), dialog.isIncludeCode())
+            generateWorkLog(dialog.getSelectedDate(), dialog.isIncludeCode(), dialog.isIncludeUncommitted())
         }
     }
 
-    private fun generateWorkLog(date: LocalDate, includeCode: Boolean) {
+    private fun generateWorkLog(date: LocalDate, includeCode: Boolean, includeUncommitted: Boolean) {
         statusLabel.text = "正在生成日志..."
 
         scope.launch {
@@ -339,7 +369,7 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
                 // Git操作必须在后台线程执行
                 statusLabel.text = "正在获取Git提交记录..."
                 val workLog = withContext(Dispatchers.IO) {
-                    workLogService.createWorkLog(date, includeCode)
+                    workLogService.createWorkLog(date, includeCode, includeUncommitted)
                 }
 
                 // 显示找到的提交数量
@@ -507,6 +537,14 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
             }
 
             loadWorkLog()
+        }
+    }
+
+    private fun getSelectedDateFromComboBox(): LocalDate? {
+        return when (val item = dateComboBox.selectedItem) {
+            is LocalDate -> item
+            is String -> runCatching { LocalDate.parse(item.trim()) }.getOrNull()
+            else -> null
         }
     }
 

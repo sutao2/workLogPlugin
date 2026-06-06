@@ -17,6 +17,11 @@ import java.time.format.DateTimeFormatter
 object ExportUtil {
 
     private val DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val parser = Parser.builder().build()
+    private val renderer = HtmlRenderer.builder()
+        .escapeHtml(true)
+        .sanitizeUrls(true)
+        .build()
 
     /**
      * 导出工作日志
@@ -51,24 +56,45 @@ object ExportUtil {
     fun exportToHtml(workLog: WorkLog, outputDir: Path): File {
         val fileName = "worklog-${workLog.date.format(DATE_FORMATTER)}.html"
         val file = outputDir.resolve(fileName).toFile()
+        file.writeText(buildHtmlContent(workLog))
+        return file
+    }
 
-        // 将 Markdown 转换为 HTML
+    /**
+     * 导出为 PDF
+     */
+    fun exportToPdf(workLog: WorkLog, outputDir: Path): File {
+        val pdfFileName = "worklog-${workLog.date.format(DATE_FORMATTER)}.pdf"
+        val pdfFile = outputDir.resolve(pdfFileName).toFile()
+
+        try {
+            FileOutputStream(pdfFile).use { outputStream ->
+                val pdfRenderer = ITextRenderer()
+                pdfRenderer.setDocumentFromString(buildHtmlContent(workLog))
+                pdfRenderer.layout()
+                pdfRenderer.createPDF(outputStream)
+            }
+            return pdfFile
+        } catch (e: Exception) {
+            throw RuntimeException("PDF 导出失败: ${e.message}", e)
+        }
+    }
+
+    private fun buildHtmlContent(workLog: WorkLog): String {
         val markdownContent = MarkdownUtil.generateFullWorkLog(
             workLog = workLog,
             includeCodeDiff = workLog.hasCodeAccess
         )
 
-        val parser = Parser.builder().build()
         val document = parser.parse(markdownContent)
-        val renderer = HtmlRenderer.builder().build()
         val htmlBody = renderer.render(document)
 
-        // 添加 CSS 样式
-        val fullHtml = """
+        return """
             <!DOCTYPE html>
             <html lang="zh-CN">
             <head>
                 <meta charset="UTF-8">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>工作日志 - ${workLog.date}</title>
                 <style>
@@ -140,37 +166,6 @@ object ExportUtil {
             </body>
             </html>
         """.trimIndent()
-
-        file.writeText(fullHtml)
-        return file
-    }
-
-    /**
-     * 导出为 PDF
-     */
-    fun exportToPdf(workLog: WorkLog, outputDir: Path): File {
-        // 先生成 HTML
-        val htmlFile = exportToHtml(workLog, outputDir)
-
-        val pdfFileName = "worklog-${workLog.date.format(DATE_FORMATTER)}.pdf"
-        val pdfFile = outputDir.resolve(pdfFileName).toFile()
-
-        // 将 HTML 转换为 PDF
-        try {
-            val outputStream = FileOutputStream(pdfFile)
-            val renderer = ITextRenderer()
-            renderer.setDocumentFromString(htmlFile.readText())
-            renderer.layout()
-            renderer.createPDF(outputStream)
-            outputStream.close()
-
-            // 删除临时 HTML 文件
-            htmlFile.delete()
-
-            return pdfFile
-        } catch (e: Exception) {
-            throw RuntimeException("PDF 导出失败: ${e.message}", e)
-        }
     }
 
     /**

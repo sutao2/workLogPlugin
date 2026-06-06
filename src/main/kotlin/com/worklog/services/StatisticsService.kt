@@ -32,9 +32,7 @@ class StatisticsService(private val project: Project) {
         val workLogs = dates.mapNotNull { workLogService.loadWorkLog(it) }
 
         val totalCommits = workLogs.sumOf { it.gitCommits.size }
-        val totalFiles = workLogs.sumOf {
-            it.gitCommits.flatMap { commit -> commit.files }.distinct().size
-        }
+        val totalFiles = workLogs.flatMap { it.gitCommits.flatMap { commit -> commit.files } }.toSet().size
 
         val commitsByDate = workLogs.associate {
             it.date to it.gitCommits.size
@@ -90,9 +88,7 @@ class StatisticsService(private val project: Project) {
 
         val workLogs = dates.mapNotNull { workLogService.loadWorkLog(it) }
         val totalCommits = workLogs.sumOf { it.gitCommits.size }
-        val totalFiles = workLogs.sumOf {
-            it.gitCommits.flatMap { commit -> commit.files }.distinct().size
-        }
+        val totalFiles = workLogs.flatMap { it.gitCommits.flatMap { commit -> commit.files } }.toSet().size
 
         val summary = buildString {
             appendLine("本周工作概览：")
@@ -135,9 +131,7 @@ class StatisticsService(private val project: Project) {
 
         val workLogs = dates.mapNotNull { workLogService.loadWorkLog(it) }
         val totalCommits = workLogs.sumOf { it.gitCommits.size }
-        val totalFiles = workLogs.sumOf {
-            it.gitCommits.flatMap { commit -> commit.files }.distinct().size
-        }
+        val totalFiles = workLogs.flatMap { it.gitCommits.flatMap { commit -> commit.files } }.toSet().size
 
         val summary = buildString {
             appendLine("${year}年${month}月工作总结")
@@ -192,9 +186,7 @@ class StatisticsService(private val project: Project) {
 
         val workLogs = dates.mapNotNull { workLogService.loadWorkLog(it) }
         val totalCommits = workLogs.sumOf { it.gitCommits.size }
-        val totalFiles = workLogs.sumOf {
-            it.gitCommits.flatMap { commit -> commit.files }.distinct().size
-        }
+        val totalFiles = workLogs.flatMap { it.gitCommits.flatMap { commit -> commit.files } }.toSet().size
 
         // 按月统计
         val commitsByMonth = workLogs.groupBy { it.date.monthValue }

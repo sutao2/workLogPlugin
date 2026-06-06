@@ -1,5 +1,6 @@
 package com.worklog.services
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.worklog.models.ApiFormat
@@ -13,6 +14,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,7 +22,12 @@ import java.util.concurrent.TimeUnit
  * 负责调用大模型 API 生成工作总结
  */
 @Service(Service.Level.PROJECT)
-class AIService(private val project: Project) {
+class AIService(private val project: Project) : Disposable {
+
+    companion object {
+        private val CONDITIONAL_BLOCK_REGEX = Regex("\\{\\{#if hasCodeAccess}}([\\s\\S]*?)\\{\\{/if}}")
+        private val CONDITIONAL_BLOCK_STRIP_REGEX = Regex("\\{\\{#if hasCodeAccess}}[\\s\\S]*?\\{\\{/if}}")
+    }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -39,19 +46,11 @@ class AIService(private val project: Project) {
     suspend fun summarizeWork(commits: List<GitCommit>, includeCode: Boolean): String {
         val settings = AppSettingsState.getInstance()
 
-        // 调试日志
-        println("=== AIService.summarizeWork ===")
-        println("Total API configs: ${settings.apiConfigs.size}")
-        val activeConfig = settings.getActiveApiConfig()
-        println("Active config: ${activeConfig?.name}, isEnabled=${activeConfig?.isEnabled}")
-        println("API URL (compat): ${settings.apiUrlCompat}")
-        println("API Key (compat): ${if (settings.apiKeyCompat.isBlank()) "BLANK" else "***${settings.apiKeyCompat.takeLast(4)}"}")
-        println("===============================")
-
         // 检查配置
         if (settings.apiUrlCompat.isBlank() || settings.apiKeyCompat.isBlank()) {
             throw IllegalStateException("请先在设置中配置 AI API")
         }
+        validateApiUrl(settings.apiUrlCompat)
 
         // 构建提示词
         val prompt = buildPrompt(commits, includeCode, settings)
@@ -69,44 +68,27 @@ class AIService(private val project: Project) {
     private fun buildPrompt(commits: List<GitCommit>, includeCode: Boolean, settings: AppSettingsState): String {
         val commitsInfo = MarkdownUtil.extractCommitsForAI(commits, includeCode)
 
-        println("=== 构建提示词 ===")
-        println("提交数量: ${commits.size}")
-        println("包含代码: $includeCode")
-        commits.forEach { commit ->
-            println("- ${commit.shortHash}: ${commit.message}, author=${commit.author}, email='${commit.authorEmail}', files=${commit.files.size}, hasDiff=${commit.diff != null}")
-            if (commit.diff != null) {
-                println("  diff 大小: ${commit.diff.length} 字符")
-            }
-        }
-
         var prompt = settings.userPromptTemplate
         prompt = prompt.replace("{{commits}}", commitsInfo)
 
         // 处理条件模板
         if (includeCode && commits.any { it.diff != null }) {
             val codeDiff = commits.mapNotNull { it.diff }.joinToString("\n\n")
-            println("代码 diff 总大小: ${codeDiff.length} 字符")
 
-            // 限制代码 diff 的大小，避免超过 API 限制
-            val maxCodeDiffSize = 30000 // 30KB
+            val maxCodeDiffSize = 30000
             val truncatedDiff = if (codeDiff.length > maxCodeDiffSize) {
-                println("警告: 代码 diff 过大，截断到 $maxCodeDiffSize 字符")
                 codeDiff.take(maxCodeDiffSize) + "\n\n... (代码变更过长，已截断)"
             } else {
                 codeDiff
             }
 
-            prompt = prompt.replace(Regex("\\{\\{#if hasCodeAccess}}([\\s\\S]*?)\\{\\{/if}}")) { matchResult ->
+            prompt = prompt.replace(CONDITIONAL_BLOCK_REGEX) { matchResult ->
                 val content = matchResult.groupValues[1]
                 content.replace("{{code_diff}}", truncatedDiff)
             }
         } else {
-            // 移除条件块
-            prompt = prompt.replace(Regex("\\{\\{#if hasCodeAccess}}[\\s\\S]*?\\{\\{/if}}"), "")
+            prompt = prompt.replace(CONDITIONAL_BLOCK_STRIP_REGEX, "")
         }
-
-        println("最终提示词大小: ${prompt.length} 字符")
-        println("==================")
 
         return prompt
     }
@@ -132,11 +114,6 @@ class AIService(private val project: Project) {
             }
 
             val requestBodyStr = requestBody.toString()
-            println("=== AI 请求 ===")
-            println("URL: ${settings.apiUrlCompat}")
-            println("Model: ${settings.modelNameCompat}")
-            println("请求体大小: ${requestBodyStr.length} 字符")
-            println("===============")
 
             val request = Request.Builder()
                 .url(settings.apiUrlCompat)
@@ -149,12 +126,6 @@ class AIService(private val project: Project) {
                 val responseBody = response.body?.string()
 
                 if (!response.isSuccessful) {
-                    println("=== AI 请求失败 ===")
-                    println("状态码: ${response.code}")
-                    println("响应消息: ${response.message}")
-                    println("响应体: $responseBody")
-                    println("==================")
-
                     val errorMsg = if (responseBody != null) {
                         try {
                             val errorJson = json.parseToJsonElement(responseBody).jsonObject
@@ -181,10 +152,6 @@ class AIService(private val project: Project) {
                     ?.jsonObject?.get("content")
                     ?.jsonPrimitive?.content
 
-                println("=== AI 响应成功 ===")
-                println("响应内容大小: ${content?.length ?: 0} 字符")
-                println("==================")
-
                 content ?: throw RuntimeException("无法从响应中提取内容")
             }
         }
@@ -200,8 +167,10 @@ class AIService(private val project: Project) {
                 throw IllegalStateException("自定义 API 格式需要配置请求模板")
             }
 
-            // 替换模板变量
-            val requestBodyStr = requestTemplate
+            // 替换模板变量（避免多次创建大字符串）
+            val requestBodyStr = buildString(requestTemplate.length + prompt.length + settings.systemPrompt.length + settings.modelNameCompat.length) {
+                append(requestTemplate)
+            }
                 .replace("{{prompt}}", prompt)
                 .replace("{{system_prompt}}", settings.systemPrompt)
                 .replace("{{model}}", settings.modelNameCompat)
@@ -315,10 +284,10 @@ class AIService(private val project: Project) {
     suspend fun callAI(userPrompt: String, systemPrompt: String? = null): String {
         val settings = AppSettingsState.getInstance()
 
-        // 检查配置
         if (settings.apiUrlCompat.isBlank() || settings.apiKeyCompat.isBlank()) {
             throw IllegalStateException("请先在设置中配置 AI API")
         }
+        validateApiUrl(settings.apiUrlCompat)
 
         val actualSystemPrompt = systemPrompt ?: settings.systemPrompt
 
@@ -375,7 +344,9 @@ class AIService(private val project: Project) {
             // 处理自定义请求模板
             var requestTemplate = settings.customRequestTemplate
             requestTemplate = requestTemplate.replace("{{system}}", systemPrompt)
+            requestTemplate = requestTemplate.replace("{{system_prompt}}", systemPrompt)
             requestTemplate = requestTemplate.replace("{{user}}", userPrompt)
+            requestTemplate = requestTemplate.replace("{{prompt}}", userPrompt)
             requestTemplate = requestTemplate.replace("{{model}}", settings.modelNameCompat)
 
             val request = Request.Builder()
@@ -396,5 +367,26 @@ class AIService(private val project: Project) {
                 extractContentFromResponse(responseBody, settings.customResponseJsonPath)
             }
         }
+    }
+
+    private fun validateApiUrl(url: String) {
+        val uri = try {
+            URI(url)
+        } catch (_: Exception) {
+            throw IllegalStateException("API URL 格式不正确: $url")
+        }
+
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host?.lowercase()
+        val isLocalHttp = scheme == "http" && host in setOf("localhost", "127.0.0.1", "::1")
+
+        if (scheme != "https" && !isLocalHttp) {
+            throw IllegalStateException("API URL 必须使用 HTTPS（本地地址除外），当前: $url")
+        }
+    }
+
+    override fun dispose() {
+        client.dispatcher.executorService.shutdown()
+        client.connectionPool.evictAll()
     }
 }

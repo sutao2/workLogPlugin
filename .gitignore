@@ -1,0 +1,43 @@
+# IntelliJ Platform Build
+build/
+out/
+
+# Gradle
+.gradle/
+.gradle-user-home/
+gradle/
+!gradle/wrapper/gradle-wrapper.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# macOS
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Work Logs (if you want to keep them private)
+.worklogs/
+
+# IntelliJ Platform local cache
+.intellijPlatform/
+
+# Plugin distribution
+*.zip
+
+# Kotlin
+*.kotlin_module
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Test output
+test-output/

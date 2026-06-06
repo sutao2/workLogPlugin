@@ -39,6 +39,7 @@ class ProjectCloseListener : ProjectCloseHandler {
 
         // 检查是否已有今日日志
         val hasTodayLog = workLogService.hasTodayWorkLog()
+        var shouldCooldown = true
 
         try {
             if (hasTodayLog) {
@@ -68,6 +69,7 @@ class ProjectCloseListener : ProjectCloseHandler {
                         val toolWindowManager = ToolWindowManager.getInstance(project)
                         val toolWindow = toolWindowManager.getToolWindow("WorkLog")
                         toolWindow?.show()
+                        shouldCooldown = false
                         false  // 阻止关闭
                     }
                     2 -> {
@@ -95,6 +97,7 @@ class ProjectCloseListener : ProjectCloseHandler {
                         val toolWindowManager = ToolWindowManager.getInstance(project)
                         val toolWindow = toolWindowManager.getToolWindow("WorkLog")
                         toolWindow?.show()
+                        shouldCooldown = false
                         false  // 阻止关闭，保持 IDE 运行
                     }
                     1 -> {
@@ -110,7 +113,11 @@ class ProjectCloseListener : ProjectCloseHandler {
                 }
             }
         } finally {
-            CloseReminderState.releaseDialogLock()
+            if (shouldCooldown) {
+                CloseReminderState.releaseDialogLock()
+            } else {
+                CloseReminderState.releaseDialogLockWithoutCooldown()
+            }
         }
     }
 }

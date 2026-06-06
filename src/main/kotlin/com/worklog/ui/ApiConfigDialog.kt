@@ -3,10 +3,14 @@ package com.worklog.ui
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.JBUI
 import com.worklog.models.ApiConfig
 import com.worklog.models.ApiFormat
+import com.worklog.models.ApiProvider
 import java.awt.*
 import javax.swing.*
 
@@ -19,6 +23,7 @@ class ApiConfigDialog(
 ) : DialogWrapper(project) {
 
     private val nameField = JBTextField(20)
+    private val providerComboBox = JComboBox(ApiProvider.entries.toTypedArray())
     private val apiUrlField = JBTextField(40)
     private val apiKeyField = JBPasswordField()
     private val modelNameField = JBTextField(20)
@@ -31,6 +36,27 @@ class ApiConfigDialog(
     init {
         title = if (existingConfig == null) "添加 API 配置" else "编辑 API 配置"
 
+        // 服务商下拉框渲染
+        providerComboBox.renderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(
+                list: JList<*>?, value: Any?, index: Int, isSelected: Boolean, cellHasFocus: Boolean
+            ): java.awt.Component {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                text = (value as? ApiProvider)?.displayName ?: value.toString()
+                return this
+            }
+        }
+
+        // 选择服务商时自动填充
+        providerComboBox.addActionListener {
+            val provider = providerComboBox.selectedItem as? ApiProvider ?: return@addActionListener
+            if (provider != ApiProvider.CUSTOM) {
+                apiUrlField.text = provider.baseUrl
+                modelNameField.text = provider.defaultModel
+                formatComboBox.selectedItem = provider.format
+            }
+        }
+
         // 如果是编辑，填充现有数据
         existingConfig?.let { config ->
             nameField.text = config.name
@@ -40,6 +66,8 @@ class ApiConfigDialog(
             formatComboBox.selectedItem = config.apiFormat
             customRequestTemplateArea.text = config.customRequestTemplate
             customResponseJsonPathField.text = config.customResponseJsonPath
+            // 根据 URL 反向匹配服务商
+            providerComboBox.selectedItem = ApiProvider.matchByUrl(config.apiUrl)
         }
 
         // 设置文本区域样式
@@ -64,8 +92,10 @@ class ApiConfigDialog(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(GridBagLayout())
+        panel.border = JBUI.Borders.empty(10)
+        panel.preferredSize = Dimension(560, 390)
         val gbc = GridBagConstraints()
-        gbc.insets = Insets(5, 5, 5, 5)
+        gbc.insets = Insets(5, 0, 5, 8)
         gbc.anchor = GridBagConstraints.WEST
         gbc.fill = GridBagConstraints.HORIZONTAL
 
@@ -75,7 +105,7 @@ class ApiConfigDialog(
         gbc.gridx = 0
         gbc.gridy = row
         gbc.weightx = 0.0
-        panel.add(JLabel("配置名称:"), gbc)
+        panel.add(JBLabel("配置名称:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 2
@@ -84,12 +114,26 @@ class ApiConfigDialog(
 
         row++
 
+        // 服务商预设
+        gbc.gridx = 0
+        gbc.gridy = row
+        gbc.gridwidth = 1
+        gbc.weightx = 0.0
+        panel.add(JBLabel("服务商:"), gbc)
+
+        gbc.gridx = 1
+        gbc.gridwidth = 2
+        gbc.weightx = 1.0
+        panel.add(providerComboBox, gbc)
+
+        row++
+
         // API URL
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
         gbc.weightx = 0.0
-        panel.add(JLabel("API 地址:"), gbc)
+        panel.add(JBLabel("API 地址:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 2
@@ -103,7 +147,7 @@ class ApiConfigDialog(
         gbc.gridy = row
         gbc.gridwidth = 1
         gbc.weightx = 0.0
-        panel.add(JLabel("API Key:"), gbc)
+        panel.add(JBLabel("API Key:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 1
@@ -121,7 +165,7 @@ class ApiConfigDialog(
         gbc.gridx = 0
         gbc.gridy = row
         gbc.weightx = 0.0
-        panel.add(JLabel("模型名称:"), gbc)
+        panel.add(JBLabel("模型名称:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 2
@@ -135,7 +179,7 @@ class ApiConfigDialog(
         gbc.gridy = row
         gbc.gridwidth = 1
         gbc.weightx = 0.0
-        panel.add(JLabel("API 格式:"), gbc)
+        panel.add(JBLabel("API 格式:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 2
@@ -150,14 +194,14 @@ class ApiConfigDialog(
         gbc.gridwidth = 1
         gbc.weightx = 0.0
         gbc.anchor = GridBagConstraints.NORTHWEST
-        panel.add(JLabel("请求模板:"), gbc)
+        panel.add(JBLabel("请求模板:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 2
         gbc.weightx = 1.0
         gbc.fill = GridBagConstraints.BOTH
         gbc.weighty = 1.0
-        val scrollPane = JScrollPane(customRequestTemplateArea)
+        val scrollPane = JBScrollPane(customRequestTemplateArea)
         scrollPane.preferredSize = Dimension(400, 100)
         panel.add(scrollPane, gbc)
 
@@ -171,7 +215,7 @@ class ApiConfigDialog(
         gbc.weighty = 0.0
         gbc.anchor = GridBagConstraints.WEST
         gbc.fill = GridBagConstraints.HORIZONTAL
-        panel.add(JLabel("响应路径:"), gbc)
+        panel.add(JBLabel("响应路径:"), gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 2

@@ -29,7 +29,13 @@ object StorageUtil {
     fun getWorkLogDir(project: Project): Path {
         val settings = AppSettingsState.getInstance()
         val baseDir = project.basePath ?: throw IllegalStateException("项目路径不存在")
-        return Paths.get(baseDir, settings.storageLocation)
+        val basePath = Paths.get(baseDir)
+        val resolved = basePath.resolve(settings.storageLocation).normalize()
+        // 防止路径遍历：确保解析后的路径仍在项目目录下
+        if (!resolved.startsWith(basePath)) {
+            throw IllegalStateException("存储路径不能指向项目目录之外: ${settings.storageLocation}")
+        }
+        return resolved
     }
 
     /**
@@ -151,6 +157,26 @@ object StorageUtil {
     fun hasWorkLog(project: Project, date: LocalDate): Boolean {
         return getWorkLogFile(project, date).exists()
     }
+
+    /**
+     * 获取报告导出目录
+     */
+    fun getReportsDir(project: Project): Path {
+        return getWorkLogDir(project).resolve("reports")
+    }
+
+    /**
+     * 获取相对于项目根目录的路径
+     */
+    fun getProjectRelativePath(project: Project, path: Path): String {
+        val baseDir = project.basePath ?: return path.toString()
+        val basePath = Paths.get(baseDir)
+        return try {
+            basePath.relativize(path).toString()
+        } catch (e: Exception) {
+            path.toString()
+        }
+    }
 }
 
 /**
@@ -177,5 +203,6 @@ data class GitCommitMetadata(
     val author: String,
     val authorEmail: String,
     val timestamp: String,
+    val files: List<String> = emptyList(),
     val filesCount: Int
 )

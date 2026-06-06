@@ -2,12 +2,13 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.util.ui.JBUI
 import com.worklog.settings.AppSettingsState
 import java.awt.BorderLayout
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import javax.swing.*
 
 /**
@@ -40,6 +41,13 @@ class GenerateWorkLogDialog(private val project: Project) : DialogWrapper(projec
         includeCodeCheckBox = JBCheckBox("允许读取代码内容（用于AI生成更详细的总结）", settings.allowCodeAccess)
         rememberChoiceCheckBox = JBCheckBox("记住我的选择", settings.rememberCodeAccessChoice)
         includeUncommittedCheckBox = JBCheckBox("包含未提交的更改", false)
+        includeUncommittedCheckBox.isEnabled = includeCodeCheckBox.isSelected
+        includeCodeCheckBox.addActionListener {
+            includeUncommittedCheckBox.isEnabled = includeCodeCheckBox.isSelected
+            if (!includeCodeCheckBox.isSelected) {
+                includeUncommittedCheckBox.isSelected = false
+            }
+        }
 
         init()
     }
@@ -47,13 +55,15 @@ class GenerateWorkLogDialog(private val project: Project) : DialogWrapper(projec
     override fun createCenterPanel(): JComponent {
         val panel = JPanel()
         panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+        panel.border = JBUI.Borders.empty(12)
+        panel.preferredSize = java.awt.Dimension(420, 180)
 
         // 日期选择
-        val datePanel = JPanel(BorderLayout())
+        val datePanel = JPanel(BorderLayout(8, 0))
         datePanel.add(JBLabel("选择日期: "), BorderLayout.WEST)
         datePanel.add(dateSpinner, BorderLayout.CENTER)
         panel.add(datePanel)
-        panel.add(Box.createVerticalStrut(10))
+        panel.add(Box.createVerticalStrut(8))
 
         // 代码访问选项
         panel.add(includeCodeCheckBox)
@@ -61,17 +71,15 @@ class GenerateWorkLogDialog(private val project: Project) : DialogWrapper(projec
         panel.add(rememberChoiceCheckBox)
         panel.add(Box.createVerticalStrut(5))
         panel.add(includeUncommittedCheckBox)
-        panel.add(Box.createVerticalStrut(10))
+        panel.add(Box.createVerticalStrut(8))
 
         // 说明文字
         val infoLabel = JBLabel(
-            "<html><small>" +
-                "说明：<br>" +
-                "• 如果允许读取代码，AI 可以分析代码变更生成更详细的工作总结<br>" +
-                "• 包含未提交的更改将会分析当前工作区中尚未提交的代码<br>" +
-                "• 所有内容都可以在生成后手动编辑" +
-                "</small></html>"
+            "<html><body style='width: 360px'>" +
+                "允许读取代码后，AI 会基于代码变更生成更详细的总结。" +
+                "</body></html>"
         )
+        infoLabel.foreground = JBColor.GRAY
         panel.add(infoLabel)
 
         return panel

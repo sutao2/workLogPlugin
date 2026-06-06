@@ -52,7 +52,9 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild")
-            untilBuild = providers.gradleProperty("pluginUntilBuild")
+            providers.gradleProperty("pluginUntilBuild").orNull?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { untilBuild = it }
         }
     }
 
@@ -91,4 +93,3 @@ tasks.register<JavaExec>("testGit") {
         listOf("2025-12-16")
     }
 }
-
