@@ -3,11 +3,7 @@ package com.worklog.ui
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.ValidationInfo
-import com.intellij.ui.JBColor
-import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPasswordField
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextField
+import com.intellij.ui.components.*
 import com.intellij.util.ui.JBUI
 import com.worklog.models.ApiConfig
 import com.worklog.models.ApiFormat
@@ -31,7 +27,7 @@ class ApiConfigDialog(
     private val formatComboBox = JComboBox(ApiFormat.values())
     private val customRequestTemplateArea = JTextArea(5, 40)
     private val customResponseJsonPathField = JBTextField(40)
-    private val showApiKeyButton = JButton("显示")
+    private val showApiKeyButton = WorkLogUi.button("显示") {}
     private var apiKeyVisible = false
 
     init {
@@ -78,8 +74,6 @@ class ApiConfigDialog(
         customRequestTemplateArea.margin = JBUI.insets(10)
 
         // API Key 显示/隐藏切换
-        showApiKeyButton.margin = JBUI.insets(3, 10)
-        showApiKeyButton.isFocusPainted = false
         showApiKeyButton.addActionListener {
             apiKeyVisible = !apiKeyVisible
             if (apiKeyVisible) {
@@ -97,22 +91,17 @@ class ApiConfigDialog(
     override fun createCenterPanel(): JComponent {
         val root = JPanel(BorderLayout(0, 14))
         root.border = JBUI.Borders.empty(16)
-        root.preferredSize = Dimension(600, 430)
+        root.preferredSize = Dimension(640, 470)
 
-        val headerPanel = JPanel(BorderLayout(0, 4))
-        headerPanel.add(JBLabel(if (existingConfig == null) "添加 API 配置" else "编辑 API 配置").apply {
-            font = font.deriveFont(Font.BOLD, 17f)
-        }, BorderLayout.NORTH)
-        headerPanel.add(JBLabel("配置服务商、模型、密钥和自定义请求格式。").apply {
-            foreground = JBColor.GRAY
-        }, BorderLayout.CENTER)
-        root.add(headerPanel, BorderLayout.NORTH)
+        root.add(
+            WorkLogUi.header(
+                if (existingConfig == null) "添加 API 配置" else "编辑 API 配置",
+                "配置服务商、模型、密钥和自定义请求格式。"
+            ),
+            BorderLayout.NORTH
+        )
 
         val panel = JPanel(GridBagLayout())
-        panel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(14)
-        )
         val gbc = GridBagConstraints()
         gbc.insets = Insets(5, 0, 5, 8)
         gbc.anchor = GridBagConstraints.WEST
@@ -120,7 +109,8 @@ class ApiConfigDialog(
 
         var row = 0
 
-        // 配置名称
+        addGroupLabel(panel, gbc, row++, "基础信息")
+
         gbc.gridx = 0
         gbc.gridy = row
         gbc.weightx = 0.0
@@ -133,7 +123,6 @@ class ApiConfigDialog(
 
         row++
 
-        // 服务商预设
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
@@ -147,7 +136,8 @@ class ApiConfigDialog(
 
         row++
 
-        // API URL
+        addGroupLabel(panel, gbc, row++, "连接与认证")
+
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
@@ -161,7 +151,6 @@ class ApiConfigDialog(
 
         row++
 
-        // API Key
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
@@ -180,7 +169,8 @@ class ApiConfigDialog(
 
         row++
 
-        // 模型名称
+        addGroupLabel(panel, gbc, row++, "模型与格式")
+
         gbc.gridx = 0
         gbc.gridy = row
         gbc.weightx = 0.0
@@ -193,7 +183,6 @@ class ApiConfigDialog(
 
         row++
 
-        // API 格式
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
@@ -207,7 +196,8 @@ class ApiConfigDialog(
 
         row++
 
-        // 自定义请求模板（仅当格式为 CUSTOM 时显示）
+        addGroupLabel(panel, gbc, row++, "自定义 API")
+
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
@@ -220,14 +210,12 @@ class ApiConfigDialog(
         gbc.weightx = 1.0
         gbc.fill = GridBagConstraints.BOTH
         gbc.weighty = 1.0
-        val scrollPane = JBScrollPane(customRequestTemplateArea)
+        val scrollPane = WorkLogUi.borderedScrollPane(customRequestTemplateArea)
         scrollPane.preferredSize = Dimension(400, 100)
-        scrollPane.border = BorderFactory.createLineBorder(JBColor.border())
         panel.add(scrollPane, gbc)
 
         row++
 
-        // 响应 JSON 路径
         gbc.gridx = 0
         gbc.gridy = row
         gbc.gridwidth = 1
@@ -242,8 +230,22 @@ class ApiConfigDialog(
         gbc.weightx = 1.0
         panel.add(customResponseJsonPathField, gbc)
 
-        root.add(panel, BorderLayout.CENTER)
+        root.add(WorkLogUi.section(panel, 14), BorderLayout.CENTER)
         return root
+    }
+
+    private fun addGroupLabel(panel: JPanel, gbc: GridBagConstraints, row: Int, text: String) {
+        gbc.gridx = 0
+        gbc.gridy = row
+        gbc.gridwidth = 3
+        gbc.weightx = 1.0
+        gbc.weighty = 0.0
+        gbc.fill = GridBagConstraints.HORIZONTAL
+        gbc.anchor = GridBagConstraints.WEST
+        gbc.insets = Insets(if (row == 0) 0 else JBUI.scale(10), 0, JBUI.scale(4), 0)
+        panel.add(JBLabel(text).apply { font = font.deriveFont(Font.BOLD) }, gbc)
+        gbc.insets = Insets(5, 0, 5, 8)
+        gbc.gridwidth = 1
     }
 
     /**

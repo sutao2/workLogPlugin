@@ -2,6 +2,7 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -14,6 +15,8 @@ import com.worklog.services.WorkLogService
 import com.worklog.settings.AppSettingsState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
@@ -38,7 +41,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     private val workLogService = project.getService(WorkLogService::class.java)
     private val aiService = project.getService(AIService::class.java)
     private val tabbedPane = JBTabbedPane()
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     companion object {
         private val THINK_TAG_REGEX = Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL)
@@ -64,24 +67,23 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         panel.preferredSize = Dimension(860, 640)
         panel.border = JBUI.Borders.empty(12)
 
-        val headerPanel = JPanel(BorderLayout(0, 4))
-        headerPanel.add(JBLabel("工作统计").apply {
-            font = font.deriveFont(Font.BOLD, 17f)
-        }, BorderLayout.NORTH)
-        headerPanel.add(JBLabel("汇总工作日志，生成周报、月报、年报或自定义范围报告。").apply {
-            foreground = JBColor.GRAY
-        }, BorderLayout.CENTER)
-
-        // 创建标签页
         tabbedPane.addTab("本周统计", createWeeklyPanel())
         tabbedPane.addTab("本月统计", createMonthlyPanel())
         tabbedPane.addTab("年度统计", createYearlyPanel())
         tabbedPane.addTab("自定义范围", createCustomRangePanel())
         tabbedPane.border = JBUI.Borders.empty(4, 0, 0, 0)
 
-        panel.add(headerPanel, BorderLayout.NORTH)
+        panel.add(
+            WorkLogUi.header("工作统计", "汇总工作日志，生成周报、月报、年报或自定义范围报告。"),
+            BorderLayout.NORTH
+        )
         panel.add(tabbedPane, BorderLayout.CENTER)
         return panel
+    }
+
+    override fun dispose() {
+        scope.cancel()
+        super.dispose()
     }
 
     private fun createWeeklyPanel(): JComponent {
@@ -89,8 +91,8 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
 
         // 顶部控制面板
         val topPanel = createActionBar()
-        val generateButton = JButton("生成本周AI总结")
-        val exportButton = JButton("导出周报")
+        val generateButton = WorkLogUi.button("生成本周 AI 总结") {}
+        val exportButton = WorkLogUi.button("导出周报") {}
         topPanel.add(generateButton)
         topPanel.add(exportButton)
 
@@ -123,18 +125,16 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                     // 提示用户已保存
                     val formatter = DateTimeFormatter.ofPattern("yyyyMMdd")
                     val fileName = "${startOfWeek.format(formatter)}-${endOfWeek.format(formatter)}工作周报.md"
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showInfoMessage(
+                        project,
                         "AI总结已生成并自动保存到：\n.worklogs/reports/$fileName",
-                        "生成成功",
-                        JOptionPane.INFORMATION_MESSAGE
+                        "生成成功"
                     )
                 } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showErrorDialog(
+                        project,
                         "AI总结生成失败: ${e.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
+                        "错误"
                     )
                     generateButton.text = "生成本周AI总结"
                 } finally {
@@ -155,11 +155,10 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                     }
                     exportWeeklyReport(startOfWeek, endOfWeek, aiSummary)
                 } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showErrorDialog(
+                        project,
                         "导出失败: ${e.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
+                        "错误"
                     )
                 }
             }
@@ -190,9 +189,9 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
 
         topPanel.add(JBLabel("月"))
 
-        val queryButton = JButton("查询")
-        val generateButton = JButton("生成月度AI总结")
-        val exportButton = JButton("导出月报")
+        val queryButton = WorkLogUi.button("查询") {}
+        val generateButton = WorkLogUi.button("生成月度 AI 总结") {}
+        val exportButton = WorkLogUi.button("导出月报") {}
 
         topPanel.add(queryButton)
         topPanel.add(generateButton)
@@ -220,11 +219,10 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                 val monthStats = statisticsService.getStatistics(start, end)
                 resultArea.text = formatMonthlyReport(currentYear, currentMonth, monthStats, null)
             } catch (e: Exception) {
-                JOptionPane.showMessageDialog(
-                    panel,
+                Messages.showErrorDialog(
+                    project,
                     "日期格式错误: ${e.message}",
-                    "错误",
-                    JOptionPane.ERROR_MESSAGE
+                    "错误"
                 )
             }
         }
@@ -247,18 +245,16 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
 
                     // 提示用户已保存
                     val fileName = "${currentYear}年${currentMonth}月工作月报.md"
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showInfoMessage(
+                        project,
                         "AI总结已生成并自动保存到：\n.worklogs/reports/$fileName",
-                        "生成成功",
-                        JOptionPane.INFORMATION_MESSAGE
+                        "生成成功"
                     )
                 } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showErrorDialog(
+                        project,
                         "AI总结生成失败: ${e.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
+                        "错误"
                     )
                     generateButton.text = "生成月度AI总结"
                 } finally {
@@ -278,11 +274,10 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                     }
                     exportMonthlyReport(currentYear, currentMonth, aiSummary)
                 } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showErrorDialog(
+                        project,
                         "导出失败: ${e.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
+                        "错误"
                     )
                 }
             }
@@ -305,9 +300,9 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         yearField.text = LocalDate.now().year.toString()
         topPanel.add(yearField)
 
-        val queryButton = JButton("查询")
-        val generateButton = JButton("生成年度AI总结")
-        val exportButton = JButton("导出年报")
+        val queryButton = WorkLogUi.button("查询") {}
+        val generateButton = WorkLogUi.button("生成年度 AI 总结") {}
+        val exportButton = WorkLogUi.button("导出年报") {}
 
         topPanel.add(queryButton)
         topPanel.add(generateButton)
@@ -329,11 +324,10 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                 val yearStats = statisticsService.getYearlyStatistics(currentYear)
                 resultArea.text = formatYearlyReport(currentYear, yearStats, null)
             } catch (e: Exception) {
-                JOptionPane.showMessageDialog(
-                    panel,
+                Messages.showErrorDialog(
+                    project,
                     "年份格式错误: ${e.message}",
-                    "错误",
-                    JOptionPane.ERROR_MESSAGE
+                    "错误"
                 )
             }
         }
@@ -354,18 +348,16 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
 
                     // 提示用户已保存
                     val fileName = "${currentYear}年度工作总结.md"
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showInfoMessage(
+                        project,
                         "AI总结已生成并自动保存到：\n.worklogs/reports/$fileName",
-                        "生成成功",
-                        JOptionPane.INFORMATION_MESSAGE
+                        "生成成功"
                     )
                 } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showErrorDialog(
+                        project,
                         "AI总结生成失败: ${e.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
+                        "错误"
                     )
                     generateButton.text = "生成年度AI总结"
                 } finally {
@@ -385,11 +377,10 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                     }
                     exportYearlyReport(currentYear, aiSummary)
                 } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(
-                        panel,
+                    Messages.showErrorDialog(
+                        project,
                         "导出失败: ${e.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
+                        "错误"
                     )
                 }
             }
@@ -415,7 +406,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
         endDateField.text = LocalDate.now().toString()
         topPanel.add(endDateField)
 
-        val queryButton = JButton("查询")
+        val queryButton = WorkLogUi.button("查询") {}
         val resultArea = createReportTextArea()
 
         queryButton.addActionListener {
@@ -439,11 +430,7 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     private fun wrapStatsPage(content: JComponent): JPanel {
         val panel = JPanel(BorderLayout())
         panel.border = JBUI.Borders.empty(14, 10, 10, 10)
-        content.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(12)
-        )
-        panel.add(content, BorderLayout.CENTER)
+        panel.add(WorkLogUi.section(content, 12), BorderLayout.CENTER)
         return panel
     }
 
@@ -454,20 +441,11 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     }
 
     private fun createReportTextArea(): JTextArea {
-        return JTextArea().apply {
-            isEditable = false
-            font = Font("Monospaced", Font.PLAIN, 13)
-            lineWrap = true
-            wrapStyleWord = true
-            margin = JBUI.insets(14)
-            background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
-        }
+        return WorkLogUi.editorArea(readOnly = true)
     }
 
     private fun createReportScrollPane(textArea: JTextArea): JBScrollPane {
-        return JBScrollPane(textArea).apply {
-            border = BorderFactory.createLineBorder(JBColor.border())
-        }
+        return WorkLogUi.borderedScrollPane(textArea)
     }
 
     private fun formatStatistics(stats: com.worklog.models.WorkLogStatistics): String {
@@ -757,15 +735,14 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
             val file = fileChooser.selectedFile
             file.writeText(reportContent)
 
-            val result = JOptionPane.showConfirmDialog(
-                tabbedPane,
+            val result = Messages.showYesNoDialog(
+                project,
                 "周报已导出到: ${file.absolutePath}\n\n是否打开文件?",
                 "导出成功",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.INFORMATION_MESSAGE
+                Messages.getInformationIcon()
             )
 
-            if (result == JOptionPane.YES_OPTION && Desktop.isDesktopSupported()) {
+            if (result == Messages.YES && Desktop.isDesktopSupported()) {
                 Desktop.getDesktop().open(file)
             }
         }
@@ -787,24 +764,22 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                 val file = fileChooser.selectedFile
                 file.writeText(reportContent)
 
-                val result = JOptionPane.showConfirmDialog(
-                    tabbedPane,
+                val result = Messages.showYesNoDialog(
+                    project,
                     "月报已导出到: ${file.absolutePath}\n\n是否打开文件?",
                     "导出成功",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.INFORMATION_MESSAGE
+                    Messages.getInformationIcon()
                 )
 
-                if (result == JOptionPane.YES_OPTION && Desktop.isDesktopSupported()) {
+                if (result == Messages.YES && Desktop.isDesktopSupported()) {
                     Desktop.getDesktop().open(file)
                 }
             }
         } catch (e: Exception) {
-            JOptionPane.showMessageDialog(
-                tabbedPane,
+            Messages.showErrorDialog(
+                project,
                 "导出失败: ${e.message}",
-                "错误",
-                JOptionPane.ERROR_MESSAGE
+                "错误"
             )
         }
     }
@@ -823,24 +798,22 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
                 val file = fileChooser.selectedFile
                 file.writeText(reportContent)
 
-                val result = JOptionPane.showConfirmDialog(
-                    tabbedPane,
+                val result = Messages.showYesNoDialog(
+                    project,
                     "年报已导出到: ${file.absolutePath}\n\n是否打开文件?",
                     "导出成功",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.INFORMATION_MESSAGE
+                    Messages.getInformationIcon()
                 )
 
-                if (result == JOptionPane.YES_OPTION && Desktop.isDesktopSupported()) {
+                if (result == Messages.YES && Desktop.isDesktopSupported()) {
                     Desktop.getDesktop().open(file)
                 }
             }
         } catch (e: Exception) {
-            JOptionPane.showMessageDialog(
-                tabbedPane,
+            Messages.showErrorDialog(
+                project,
                 "导出失败: ${e.message}",
-                "错误",
-                JOptionPane.ERROR_MESSAGE
+                "错误"
             )
         }
     }

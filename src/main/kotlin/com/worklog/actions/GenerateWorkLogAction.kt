@@ -2,20 +2,22 @@ package com.worklog.actions
 
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.wm.ToolWindowManager
 import com.worklog.services.WorkLogService
+import com.worklog.settings.AppSettingsState
 import com.worklog.ui.GenerateWorkLogDialog
+import com.worklog.ui.WorkLogToolWindow
 import com.worklog.utils.MarkdownUtil
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import javax.swing.JOptionPane
 
 /**
  * 生成工作日志的动作
  */
 class GenerateWorkLogAction : AnAction() {
-
-    private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -27,18 +29,20 @@ class GenerateWorkLogAction : AnAction() {
             val includeCode = dialog.isIncludeCode()
             val includeUncommitted = dialog.isIncludeUncommitted()
 
-            // 异步生成日志
-            scope.launch {
-                try {
+            ProgressManager.getInstance().run(object : Task.Backgroundable(project, "生成工作日志", true) {
+                override fun run(indicator: ProgressIndicator) {
+                    indicator.isIndeterminate = true
+                    indicator.text = "正在获取 Git 提交记录..."
                     val workLogService = project.getService(WorkLogService::class.java)
                     val workLog = workLogService.createWorkLog(date, includeCode, includeUncommitted)
 
                     // 如果配置了 AI，调用 AI 生成总结
-                    val settings = com.worklog.settings.AppSettingsState.getInstance()
+                    val settings = AppSettingsState.getInstance()
                     val aiSummary = if (settings.apiKeyCompat.isNotBlank() && workLog.gitCommits.isNotEmpty()) {
                         try {
+                            indicator.text = "正在调用 AI 生成总结..."
                             val aiService = project.getService(com.worklog.services.AIService::class.java)
-                            aiService.summarizeWork(workLog.gitCommits, includeCode)
+                            aiService.summarizeWorkSync(workLog.gitCommits, includeCode)
                         } catch (e: Exception) {
                             null
                         }
@@ -47,6 +51,7 @@ class GenerateWorkLogAction : AnAction() {
                     }
 
                     // 生成完整内容
+                    indicator.text = "正在保存工作日志..."
                     val fullContent = MarkdownUtil.generateFullWorkLog(
                         workLog = workLog,
                         aiSummary = aiSummary,
@@ -56,26 +61,17 @@ class GenerateWorkLogAction : AnAction() {
                     workLog.content = fullContent
                     workLogService.saveWorkLog(workLog)
 
-                    // 打开工作日志窗口
-                    val toolWindowManager = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
-                    val toolWindow = toolWindowManager.getToolWindow("WorkLog")
-                    toolWindow?.show()
-
-                    JOptionPane.showMessageDialog(
-                        null,
-                        "工作日志生成成功！",
-                        "成功",
-                        JOptionPane.INFORMATION_MESSAGE
-                    )
-                } catch (ex: Exception) {
-                    JOptionPane.showMessageDialog(
-                        null,
-                        "生成失败: ${ex.message}",
-                        "错误",
-                        JOptionPane.ERROR_MESSAGE
-                    )
+                    ApplicationManager.getApplication().invokeLater {
+                        ToolWindowManager.getInstance(project).getToolWindow(WorkLogToolWindow.ID)?.show()
+                        Messages.showInfoMessage(project, "工作日志生成成功！", "成功")
+                    }
                 }
-            }
+
+                override fun onThrowable(error: Throwable) {
+                    if (error is com.intellij.openapi.progress.ProcessCanceledException) return
+                    Messages.showWarningDialog(project, "生成失败: ${error.message}", "错误")
+                }
+            })
         }
     }
 

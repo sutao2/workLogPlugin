@@ -14,7 +14,7 @@ import com.worklog.models.ReviewResult
 import com.worklog.services.CodeReviewService
 import com.worklog.ui.CodeReviewResultDialog
 
-class RunCommitHistoryReviewAction : DumbAwareAction("评审提交代码", "评审所选历史提交的代码变更", AllIcons.Actions.Find) {
+class RunCommitHistoryReviewAction : DumbAwareAction("评审提交代码", "评审所选历史提交的代码变更", AllIcons.General.InspectionsOK) {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
@@ -86,9 +86,13 @@ class RunCommitHistoryReviewAction : DumbAwareAction("评审提交代码", "评�
             return
         }
         result.dialogResult?.let {
-            CodeReviewResultDialog(project, it) {
-                runCommitReview(project, commitHashes)
-            }.show()
+            CodeReviewResultDialog(
+                project = project,
+                result = it,
+                onReReview = {
+                    runCommitReview(project, commitHashes)
+                }
+            ).show()
         }
     }
 

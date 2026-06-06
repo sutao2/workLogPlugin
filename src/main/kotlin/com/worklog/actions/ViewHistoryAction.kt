@@ -3,6 +3,7 @@ package com.worklog.actions
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.worklog.ui.HistoryViewDialog
+import com.worklog.ui.WorkLogToolWindow
 
 /**
  * 查看历史日志的动作
@@ -20,7 +21,7 @@ class ViewHistoryAction : AnAction() {
         val selectedDate = dialog.getSelectedDate()
         if (selectedDate != null) {
             val toolWindowManager = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
-            val toolWindow = toolWindowManager.getToolWindow("WorkLog")
+            val toolWindow = toolWindowManager.getToolWindow(WorkLogToolWindow.ID)
             toolWindow?.show()
         }
     }

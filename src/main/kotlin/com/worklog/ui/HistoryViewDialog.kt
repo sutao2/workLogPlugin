@@ -2,10 +2,9 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
-import com.intellij.ui.JBColor
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.worklog.services.WorkLogService
@@ -43,20 +42,7 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
         panel.preferredSize = Dimension(860, 620)
         panel.border = JBUI.Borders.empty(12)
 
-        val headerPanel = JPanel(BorderLayout(0, 4))
-        headerPanel.add(JBLabel("历史工作日志").apply {
-            font = font.deriveFont(Font.BOLD, 17f)
-        }, BorderLayout.NORTH)
-        headerPanel.add(JBLabel("搜索、预览并打开已保存的 Markdown 工作日志。").apply {
-            foreground = JBColor.GRAY
-        }, BorderLayout.CENTER)
-
-        // 顶部搜索栏
         val searchPanel = JPanel(BorderLayout(8, 0))
-        searchPanel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(10)
-        )
         searchPanel.add(JBLabel("搜索").apply {
             font = font.deriveFont(Font.BOLD)
         }, BorderLayout.WEST)
@@ -64,25 +50,20 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
             filterDates()
         }
         searchPanel.add(searchField, BorderLayout.CENTER)
-        val searchButton = JButton("搜索")
-        searchButton.margin = JBUI.insets(3, 12)
-        searchButton.isFocusPainted = false
-        searchButton.addActionListener {
+        val searchButton = WorkLogUi.button("搜索") {
             filterDates()
         }
         searchPanel.add(searchButton, BorderLayout.EAST)
 
         val topPanel = JPanel(BorderLayout(0, 10))
-        topPanel.add(headerPanel, BorderLayout.NORTH)
-        topPanel.add(searchPanel, BorderLayout.CENTER)
+        topPanel.add(WorkLogUi.header("历史工作日志", "搜索、预览并打开已保存的 Markdown 工作日志。"), BorderLayout.NORTH)
+        topPanel.add(WorkLogUi.section(searchPanel, 10), BorderLayout.CENTER)
         panel.add(topPanel, BorderLayout.NORTH)
 
-        // 中间分割面板
         val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT)
         splitPane.border = BorderFactory.createEmptyBorder()
         splitPane.dividerSize = JBUI.scale(7)
 
-        // 左侧日期列表
         dateList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         dateList.cellRenderer = object : DefaultListCellRenderer() {
             override fun getListCellRendererComponent(
@@ -110,26 +91,22 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
         listPanel.add(JBLabel("日志日期").apply {
             font = font.deriveFont(Font.BOLD, 15f)
         }, BorderLayout.NORTH)
-        val listScrollPane = JBScrollPane(dateList)
-        listScrollPane.border = BorderFactory.createLineBorder(JBColor.border())
+        val listScrollPane = WorkLogUi.borderedScrollPane(dateList)
         listScrollPane.preferredSize = Dimension(260, 0)
         listPanel.add(listScrollPane, BorderLayout.CENTER)
         splitPane.leftComponent = listPanel
 
-        // 右侧预览区域
         previewArea.isEditable = false
         previewArea.lineWrap = true
         previewArea.wrapStyleWord = true
         previewArea.margin = JBUI.insets(14)
-        previewArea.font = Font("Monospaced", Font.PLAIN, 13)
-        previewArea.background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
+        previewArea.font = WorkLogUi.editorArea(readOnly = true).font
+        previewArea.background = WorkLogUi.editorArea(readOnly = true).background
         val previewPanel = JPanel(BorderLayout(0, 8))
         previewPanel.add(JBLabel("日志预览").apply {
             font = font.deriveFont(Font.BOLD, 15f)
         }, BorderLayout.NORTH)
-        val previewScrollPane = JBScrollPane(previewArea)
-        previewScrollPane.border = BorderFactory.createLineBorder(JBColor.border())
-        previewPanel.add(previewScrollPane, BorderLayout.CENTER)
+        previewPanel.add(WorkLogUi.borderedScrollPane(previewArea), BorderLayout.CENTER)
         splitPane.rightComponent = previewPanel
 
         splitPane.dividerLocation = JBUI.scale(280)
@@ -203,15 +180,14 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
     private fun deleteSelectedDate() {
         val date = dateList.selectedValue ?: return
 
-        val result = JOptionPane.showConfirmDialog(
-            contentPane,
+        val result = Messages.showYesNoDialog(
+            project,
             "确定要删除 ${date.format(dateFormatter)} 的工作日志吗？\n此操作不可恢复！",
             "确认删除",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.WARNING_MESSAGE
+            Messages.getWarningIcon()
         )
 
-        if (result == JOptionPane.YES_OPTION) {
+        if (result == Messages.YES) {
             workLogService.deleteWorkLog(date)
             loadDates()
             previewArea.text = ""

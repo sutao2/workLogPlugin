@@ -7,6 +7,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindowManager
 import com.worklog.services.WorkLogService
 import com.worklog.settings.AppSettingsState
+import com.worklog.ui.WorkLogToolWindow
 import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
 
@@ -67,7 +68,7 @@ class ProjectCloseListener : ProjectCloseHandler {
                     1 -> {
                         // 打开工作日志窗口
                         val toolWindowManager = ToolWindowManager.getInstance(project)
-                        val toolWindow = toolWindowManager.getToolWindow("WorkLog")
+                        val toolWindow = toolWindowManager.getToolWindow(WorkLogToolWindow.ID)
                         toolWindow?.show()
                         shouldCooldown = false
                         false  // 阻止关闭
@@ -95,7 +96,7 @@ class ProjectCloseListener : ProjectCloseHandler {
                     0 -> {
                         // 立即填写 - 打开工作日志窗口
                         val toolWindowManager = ToolWindowManager.getInstance(project)
-                        val toolWindow = toolWindowManager.getToolWindow("WorkLog")
+                        val toolWindow = toolWindowManager.getToolWindow(WorkLogToolWindow.ID)
                         toolWindow?.show()
                         shouldCooldown = false
                         false  // 阻止关闭，保持 IDE 运行

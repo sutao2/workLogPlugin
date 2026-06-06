@@ -5,8 +5,9 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.worklog.models.ApiFormat
 import com.worklog.models.GitCommit
+import com.worklog.services.ai.AIResponseParser
+import com.worklog.services.ai.WorkLogPromptBuilder
 import com.worklog.settings.AppSettingsState
-import com.worklog.utils.MarkdownUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
@@ -23,12 +24,6 @@ import java.util.concurrent.TimeUnit
  */
 @Service(Service.Level.PROJECT)
 class AIService(private val project: Project) : Disposable {
-
-    companion object {
-        private val CONDITIONAL_BLOCK_REGEX = Regex("\\{\\{#if hasCodeAccess}}([\\s\\S]*?)\\{\\{/if}}")
-        private val CONDITIONAL_BLOCK_STRIP_REGEX = Regex("\\{\\{#if hasCodeAccess}}[\\s\\S]*?\\{\\{/if}}")
-    }
-
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -39,11 +34,22 @@ class AIService(private val project: Project) : Disposable {
         prettyPrint = false
         ignoreUnknownKeys = true
     }
+    private val responseParser = AIResponseParser(json)
 
     /**
      * 总结工作内容
      */
     suspend fun summarizeWork(commits: List<GitCommit>, includeCode: Boolean): String {
+        return withContext(Dispatchers.IO) {
+            summarizeWorkSync(commits, includeCode)
+        }
+    }
+
+    /**
+     * 同步总结工作内容。供 IntelliJ Background Task 这类同步后台 API 调用，
+     * 避免在平台后台线程中使用 runBlocking 反向阻塞协程。
+     */
+    fun summarizeWorkSync(commits: List<GitCommit>, includeCode: Boolean): String {
         val settings = AppSettingsState.getInstance()
 
         // 检查配置
@@ -53,182 +59,101 @@ class AIService(private val project: Project) : Disposable {
         validateApiUrl(settings.apiUrlCompat)
 
         // 构建提示词
-        val prompt = buildPrompt(commits, includeCode, settings)
+        val prompt = WorkLogPromptBuilder.build(commits, includeCode, settings.userPromptTemplate)
 
         // 根据 API 格式调用不同的方法
         return when (settings.apiFormatCompat) {
-            ApiFormat.OPENAI -> callOpenAIFormat(prompt, settings)
-            ApiFormat.CUSTOM -> callCustomFormat(prompt, settings)
+            ApiFormat.OPENAI -> callOpenAIFormatSync(prompt, settings)
+            ApiFormat.CUSTOM -> callCustomFormatSync(prompt, settings)
         }
-    }
-
-    /**
-     * 构建提示词
-     */
-    private fun buildPrompt(commits: List<GitCommit>, includeCode: Boolean, settings: AppSettingsState): String {
-        val commitsInfo = MarkdownUtil.extractCommitsForAI(commits, includeCode)
-
-        var prompt = settings.userPromptTemplate
-        prompt = prompt.replace("{{commits}}", commitsInfo)
-
-        // 处理条件模板
-        if (includeCode && commits.any { it.diff != null }) {
-            val codeDiff = commits.mapNotNull { it.diff }.joinToString("\n\n")
-
-            val maxCodeDiffSize = 30000
-            val truncatedDiff = if (codeDiff.length > maxCodeDiffSize) {
-                codeDiff.take(maxCodeDiffSize) + "\n\n... (代码变更过长，已截断)"
-            } else {
-                codeDiff
-            }
-
-            prompt = prompt.replace(CONDITIONAL_BLOCK_REGEX) { matchResult ->
-                val content = matchResult.groupValues[1]
-                content.replace("{{code_diff}}", truncatedDiff)
-            }
-        } else {
-            prompt = prompt.replace(CONDITIONAL_BLOCK_STRIP_REGEX, "")
-        }
-
-        return prompt
     }
 
     /**
      * 调用 OpenAI 格式的 API
      */
-    private suspend fun callOpenAIFormat(prompt: String, settings: AppSettingsState): String {
-        return withContext(Dispatchers.IO) {
-            val requestBody = buildJsonObject {
-                put("model", settings.modelNameCompat)
-                putJsonArray("messages") {
-                    addJsonObject {
-                        put("role", "system")
-                        put("content", settings.systemPrompt)
-                    }
-                    addJsonObject {
-                        put("role", "user")
-                        put("content", prompt)
-                    }
+    private fun callOpenAIFormatSync(prompt: String, settings: AppSettingsState): String {
+        val requestBody = buildJsonObject {
+            put("model", settings.modelNameCompat)
+            putJsonArray("messages") {
+                addJsonObject {
+                    put("role", "system")
+                    put("content", settings.systemPrompt)
                 }
-                put("temperature", 0.7)
+                addJsonObject {
+                    put("role", "user")
+                    put("content", prompt)
+                }
             }
+            put("temperature", 0.7)
+        }
 
-            val requestBodyStr = requestBody.toString()
+        val requestBodyStr = requestBody.toString()
 
-            val request = Request.Builder()
-                .url(settings.apiUrlCompat)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
-                .post(requestBodyStr.toRequestBody("application/json".toMediaType()))
-                .build()
+        val request = Request.Builder()
+            .url(settings.apiUrlCompat)
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
+            .post(requestBodyStr.toRequestBody("application/json".toMediaType()))
+            .build()
 
-            client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string()
+        client.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string()
 
-                if (!response.isSuccessful) {
-                    val errorMsg = if (responseBody != null) {
-                        try {
-                            val errorJson = json.parseToJsonElement(responseBody).jsonObject
-                            val errorMessage = errorJson["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
-                                ?: errorJson["message"]?.jsonPrimitive?.content
-                                ?: responseBody
-                            "API 调用失败 (${response.code}): $errorMessage"
-                        } catch (e: Exception) {
-                            "API 调用失败 (${response.code}): ${response.message}\n$responseBody"
-                        }
-                    } else {
-                        "API 调用失败 (${response.code}): ${response.message}"
+            if (!response.isSuccessful) {
+                val errorMsg = if (responseBody != null) {
+                    try {
+                        val errorJson = json.parseToJsonElement(responseBody).jsonObject
+                        val errorMessage = errorJson["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+                            ?: errorJson["message"]?.jsonPrimitive?.content
+                            ?: responseBody
+                        "API 调用失败 (${response.code}): $errorMessage"
+                    } catch (e: Exception) {
+                        "API 调用失败 (${response.code}): ${response.message}\n$responseBody"
                     }
-
-                    throw RuntimeException(errorMsg)
+                } else {
+                    "API 调用失败 (${response.code}): ${response.message}"
                 }
 
-                val jsonResponse = json.parseToJsonElement(responseBody ?: "").jsonObject
-
-                // 解析 OpenAI 格式响应
-                val content = jsonResponse["choices"]
-                    ?.jsonArray?.get(0)
-                    ?.jsonObject?.get("message")
-                    ?.jsonObject?.get("content")
-                    ?.jsonPrimitive?.content
-
-                content ?: throw RuntimeException("无法从响应中提取内容")
+                throw RuntimeException(errorMsg)
             }
+
+            return responseParser.extractOpenAIContent(responseBody ?: "")
         }
     }
 
     /**
      * 调用自定义格式的 API
      */
-    private suspend fun callCustomFormat(prompt: String, settings: AppSettingsState): String {
-        return withContext(Dispatchers.IO) {
-            // 解析自定义请求模板
-            val requestTemplate = settings.customRequestTemplate.ifBlank {
-                throw IllegalStateException("自定义 API 格式需要配置请求模板")
-            }
-
-            // 替换模板变量（避免多次创建大字符串）
-            val requestBodyStr = buildString(requestTemplate.length + prompt.length + settings.systemPrompt.length + settings.modelNameCompat.length) {
-                append(requestTemplate)
-            }
-                .replace("{{prompt}}", prompt)
-                .replace("{{system_prompt}}", settings.systemPrompt)
-                .replace("{{model}}", settings.modelNameCompat)
-
-            val request = Request.Builder()
-                .url(settings.apiUrlCompat)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
-                .post(requestBodyStr.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw RuntimeException("API 调用失败: ${response.code} ${response.message}")
-                }
-
-                val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")
-
-                // 使用 JSON Path 提取响应内容
-                extractContentFromResponse(responseBody, settings.customResponseJsonPath)
-            }
-        }
-    }
-
-    /**
-     * 从响应中提取内容
-     * 支持简单的 JSON Path，例如: "data.content" 或 "choices[0].message.content"
-     */
-    private fun extractContentFromResponse(responseBody: String, jsonPath: String): String {
-        if (jsonPath.isBlank()) {
-            // 如果没有指定路径，直接返回响应体
-            return responseBody
+    private fun callCustomFormatSync(prompt: String, settings: AppSettingsState): String {
+        // 解析自定义请求模板
+        val requestTemplate = settings.customRequestTemplate.ifBlank {
+            throw IllegalStateException("自定义 API 格式需要配置请求模板")
         }
 
-        val jsonElement = json.parseToJsonElement(responseBody)
-        var current: JsonElement = jsonElement
-
-        // 解析简单的 JSON Path
-        val parts = jsonPath.split(".")
-        for (part in parts) {
-            current = when {
-                part.contains("[") -> {
-                    // 处理数组索引，例如 "choices[0]"
-                    val arrayName = part.substringBefore("[")
-                    val index = part.substringAfter("[").substringBefore("]").toInt()
-                    current.jsonObject[arrayName]?.jsonArray?.get(index)
-                        ?: throw RuntimeException("无法找到路径: $part")
-                }
-                current is JsonObject -> {
-                    current.jsonObject[part] ?: throw RuntimeException("无法找到路径: $part")
-                }
-                else -> throw RuntimeException("无效的 JSON 路径: $jsonPath")
-            }
+        // 替换模板变量（避免多次创建大字符串）
+        val requestBodyStr = buildString(requestTemplate.length + prompt.length + settings.systemPrompt.length + settings.modelNameCompat.length) {
+            append(requestTemplate)
         }
+            .replace("{{prompt}}", prompt)
+            .replace("{{system_prompt}}", settings.systemPrompt)
+            .replace("{{model}}", settings.modelNameCompat)
 
-        return when (current) {
-            is JsonPrimitive -> current.content
-            else -> current.toString()
+        val request = Request.Builder()
+            .url(settings.apiUrlCompat)
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Authorization", "Bearer ${settings.apiKeyCompat}")
+            .post(requestBodyStr.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw RuntimeException("API 调用失败: ${response.code} ${response.message}")
+            }
+
+            val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")
+
+            // 使用 JSON Path 提取响应内容
+            return responseParser.extractCustomContent(responseBody, settings.customResponseJsonPath)
         }
     }
 
@@ -328,13 +253,7 @@ class AIService(private val project: Project) : Disposable {
                 }
 
                 val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")
-                val jsonResponse = json.parseToJsonElement(responseBody).jsonObject
-
-                jsonResponse["choices"]?.jsonArray?.get(0)
-                    ?.jsonObject?.get("message")
-                    ?.jsonObject?.get("content")
-                    ?.jsonPrimitive?.content
-                    ?: throw RuntimeException("无法从响应中提取内容")
+                responseParser.extractOpenAIContent(responseBody)
             }
         }
     }
@@ -364,7 +283,7 @@ class AIService(private val project: Project) : Disposable {
                 val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")
 
                 // 使用 JSON Path 提取响应内容
-                extractContentFromResponse(responseBody, settings.customResponseJsonPath)
+                responseParser.extractCustomContent(responseBody, settings.customResponseJsonPath)
             }
         }
     }

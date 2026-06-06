@@ -2,13 +2,10 @@ package com.worklog.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
-import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
-import java.awt.Font
 import java.time.LocalDate
 import javax.swing.*
 
@@ -35,24 +32,22 @@ class ShutdownReminderDialog(private val project: Project) : DialogWrapper(proje
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout(0, 12))
         panel.border = JBUI.Borders.empty(16)
-        panel.preferredSize = Dimension(460, 150)
+        panel.preferredSize = Dimension(480, 160)
 
-        // 主要内容
-        val contentPanel = JPanel(BorderLayout(0, 6))
-        contentPanel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(14)
+        val contentPanel = JPanel(BorderLayout(0, 10))
+        contentPanel.add(
+            WorkLogUi.header(
+                "今日工作日志尚未填写",
+                "可以现在生成日志，也可以打开编辑器手动填写。日期: ${LocalDate.now()}"
+            ),
+            BorderLayout.NORTH
         )
-        val titleLabel = JBLabel("今日工作日志尚未填写")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 17f)
-        val messageLabel = JBLabel("可以现在生成日志，也可以打开编辑器手动填写。日期: ${LocalDate.now()}")
-        messageLabel.foreground = JBColor.GRAY
-        contentPanel.add(titleLabel, BorderLayout.NORTH)
-        contentPanel.add(messageLabel, BorderLayout.CENTER)
+        contentPanel.add(
+            WorkLogUi.helpLabel("关闭 IDE 前保留一个轻量提醒，避免当天日志遗漏。", 420),
+            BorderLayout.CENTER
+        )
 
-        panel.add(contentPanel, BorderLayout.CENTER)
-
-        // 底部选项
+        panel.add(WorkLogUi.section(contentPanel, 14), BorderLayout.CENTER)
         dontRemindCheckBox.border = JBUI.Borders.empty(0, 2, 0, 0)
         panel.add(dontRemindCheckBox, BorderLayout.SOUTH)
 

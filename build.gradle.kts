@@ -31,6 +31,8 @@ dependencies {
     implementation("org.xhtmlrenderer:flying-saucer-pdf:9.4.1")
     implementation("org.commonmark:commonmark:0.21.0")
 
+    testImplementation(kotlin("test"))
+
     // IntelliJ Platform dependencies
     intellijPlatform {
         create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))

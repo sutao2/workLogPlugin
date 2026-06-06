@@ -34,7 +34,7 @@ private class CodeReviewCheckinHandler(
             return ReturnResult.COMMIT
         }
 
-        val commitMessage = panel.commitMessage?.takeIf { it.isNotBlank() }
+        val commitMessage = panel.commitMessage.takeIf { it.isNotBlank() }
         val resultRef = AtomicReference<com.worklog.models.ReviewResult?>()
         val snapshotKeyRef = AtomicReference<String?>()
         val errorRef = AtomicReference<String?>()
@@ -84,6 +84,7 @@ private class CodeReviewCheckinHandler(
         val dialog = CodeReviewResultDialog(
             project = project,
             result = reviewResult,
+            allowContinueCommit = true,
             onContinueCommit = {
                 snapshotKeyRef.get()?.let { snapshotKey ->
                     runCatching {

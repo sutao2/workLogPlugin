@@ -1,34 +1,35 @@
 package com.worklog.services
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.changes.ChangeListManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.worklog.models.GitCommit
+import com.worklog.services.git.GitCommandExecutor
+import com.worklog.services.git.GitDiffAnnotator
+import com.worklog.services.git.GitFileFilter
+import com.worklog.services.git.GitFileFilterRules
+import com.worklog.services.git.GitLogParser
 import git4idea.GitUtil
 import git4idea.repo.GitRepository
-import java.io.Reader
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
 
 /**
  * Git 服务
  * 负责获取 Git 提交信息和代码变更
  */
 @Service(Service.Level.PROJECT)
-class GitService(private val project: Project) {
+class GitService(private val project: Project) : Disposable {
 
     private val log = Logger.getInstance(GitService::class.java)
+    private val commandExecutor = GitCommandExecutor()
 
     companion object {
         private val VALID_COMMIT_HASH = Regex("^[a-f0-9]{4,64}$")
-        private const val COMMIT_FIELD_SEPARATOR = "\u001F"
-        private const val MAX_GIT_OUTPUT_CHARS = 2_000_000
     }
 
     private fun requireValidCommitHash(hash: String) {
@@ -44,70 +45,8 @@ class GitService(private val project: Project) {
         workDir: java.io.File,
         timeoutSeconds: Long = 15
     ): Pair<Int, String>? {
-        val process = ProcessBuilder(*command)
-            .directory(workDir)
-            .redirectErrorStream(false)
-            .start()
-        val executor = Executors.newFixedThreadPool(2)
-        return try {
-            val stdoutFuture = executor.submit<String> {
-                process.inputStream.bufferedReader().use { readLimited(it, MAX_GIT_OUTPUT_CHARS) }
-            }
-            val stderrFuture = executor.submit<String> {
-                process.errorStream.bufferedReader().use { readLimited(it, MAX_GIT_OUTPUT_CHARS) }
-            }
-
-            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                closeProcessStreams(process)
-                process.waitFor(2, TimeUnit.SECONDS)
-                null
-            } else {
-                val stdout = getFutureValue(stdoutFuture)
-                getFutureValue(stderrFuture)
-                Pair(process.exitValue(), stdout)
-            }
-        } catch (e: Exception) {
-            process.destroyForcibly()
-            closeProcessStreams(process)
-            null
-        } finally {
-            executor.shutdownNow()
-        }
-    }
-
-    private fun readLimited(reader: Reader, maxChars: Int): String {
-        val output = StringBuilder(maxChars.coerceAtMost(64 * 1024))
-        val buffer = CharArray(8192)
-        var storedChars = 0
-
-        while (true) {
-            val count = reader.read(buffer)
-            if (count < 0) break
-
-            val remaining = maxChars - storedChars
-            if (remaining > 0) {
-                val toAppend = minOf(count, remaining)
-                output.append(buffer, 0, toAppend)
-                storedChars += toAppend
-            }
-        }
-
-        return output.toString()
-    }
-
-    private fun getFutureValue(future: Future<String>): String {
-        return try {
-            future.get(2, TimeUnit.SECONDS)
-        } catch (_: Exception) {
-            ""
-        }
-    }
-
-    private fun closeProcessStreams(process: Process) {
-        runCatching { process.inputStream.close() }
-        runCatching { process.errorStream.close() }
-        runCatching { process.outputStream.close() }
+        return commandExecutor.execute(command, workDir, timeoutSeconds)
+            ?.let { it.exitCode to it.stdout }
     }
 
     /**
@@ -142,7 +81,7 @@ class GitService(private val project: Project) {
                 "--author=$currentUserEmail",
                 "--since=$dateStr 00:00:00",
                 "--until=$nextDateStr 00:00:00",
-                "--pretty=format:%H${COMMIT_FIELD_SEPARATOR}%h${COMMIT_FIELD_SEPARATOR}%s${COMMIT_FIELD_SEPARATOR}%an${COMMIT_FIELD_SEPARATOR}%ae${COMMIT_FIELD_SEPARATOR}%ct",
+                "--pretty=format:%H${GitLogParser.COMMIT_FIELD_SEPARATOR}%h${GitLogParser.COMMIT_FIELD_SEPARATOR}%s${GitLogParser.COMMIT_FIELD_SEPARATOR}%an${GitLogParser.COMMIT_FIELD_SEPARATOR}%ae${GitLogParser.COMMIT_FIELD_SEPARATOR}%ct",
                 "--name-only"
             )
 
@@ -152,78 +91,15 @@ class GitService(private val project: Project) {
             val output = result.second
 
             // 获取配置（只获取一次，避免重复解析）
-            val settings = com.worklog.settings.AppSettingsState.getInstance()
-            val excludedExtensions = settings.excludedFileExtensions
-                .split(",")
-                .map { it.trim().lowercase() }
-                .filter { it.isNotBlank() }
-                .toSet()
-            val excludedDirs = settings.excludedDirectories
-                .split(",")
-                .map { it.trim().lowercase() }
-                .filter { it.isNotBlank() }
-
-            // 解析输出
-            val commits = mutableListOf<GitCommit>()
-            val lines = output.lines().filter { it.isNotBlank() }
-
-            var i = 0
-            while (i < lines.size) {
-                val line = lines[i]
-
-                // 检查是否是提交信息行（包含管道符）
-                if (line.contains(COMMIT_FIELD_SEPARATOR)) {
-                    val parts = line.split(COMMIT_FIELD_SEPARATOR, limit = 6)
-                    if (parts.size == 6) {
-                        val hash = parts[0]
-                        val shortHash = parts[1]
-                        val message = parts[2]
-                        val authorName = parts[3]
-                        val authorEmail = parts[4]
-                        val timestamp = Instant.ofEpochSecond(parts[5].toLong())
-
-                        // 收集这个提交的文件列表（过滤掉大型文件）
-                        val files = mutableListOf<String>()
-                        i++
-                        while (i < lines.size && !lines[i].contains(COMMIT_FIELD_SEPARATOR)) {
-                            if (lines[i].isNotBlank()) {
-                                val filePath = lines[i]
-                                // 只包含应该被跟踪的文件类型（使用预解析的配置）
-                                if (shouldIncludeFilePath(filePath, excludedExtensions, excludedDirs)) {
-                                    files.add(filePath)
-                                }
-                            }
-                            i++
-                        }
-
-                        // 如果需要代码差异且有有效文件
-                        val diff = if (includeCode && files.isNotEmpty()) {
-                            try {
-                                getDiffForCommit(repository, hash, files)
-                            } catch (e: Exception) {
-                                null
-                            }
-                        } else {
-                            null
-                        }
-
-                        commits.add(
-                            GitCommit(
-                                hash = hash,
-                                shortHash = shortHash,
-                                message = message,
-                                author = authorName,
-                                authorEmail = authorEmail,
-                                timestamp = timestamp,
-                                files = files,
-                                diff = diff
-                            )
-                        )
-
-                        continue
-                    }
+            val rules = currentFilterRules()
+            val commits = GitLogParser.parseCommits(output) { filePath ->
+                GitFileFilter.shouldIncludePath(filePath, rules)
+            }.map { commit ->
+                if (includeCode && commit.files.isNotEmpty()) {
+                    commit.copy(diff = runCatching { getDiffForCommit(repository, commit.hash, commit.files) }.getOrNull())
+                } else {
+                    commit
                 }
-                i++
             }
 
             log.info("总共找到 ${commits.size} 条提交记录")
@@ -239,59 +115,12 @@ class GitService(private val project: Project) {
      */
     fun getUncommittedChanges(): List<VirtualFile> {
         val changeListManager = ChangeListManager.getInstance(project)
-        val settings = com.worklog.settings.AppSettingsState.getInstance()
-        val excludedExts = settings.excludedFileExtensions
-            .split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
-        val excludedDirs = settings.excludedDirectories
-            .split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
-        val maxSizeBytes = settings.maxFileSizeKb * 1024L
+        val rules = currentFilterRules()
 
         return changeListManager.allChanges
             .mapNotNull { it.virtualFile }
             .distinct()
-            .filter { shouldIncludeFile(it, excludedExts, excludedDirs, maxSizeBytes) }
-    }
-
-    private fun shouldIncludeFile(
-        file: VirtualFile,
-        excludedExtensions: Set<String>,
-        excludedDirs: List<String>,
-        maxSizeBytes: Long
-    ): Boolean {
-        val fileName = file.name.lowercase()
-        val path = file.path.lowercase()
-
-        val extension = fileName.substringAfterLast('.', "")
-        if (extension in excludedExtensions) return false
-        val normalizedPath = "/${path.trimStart('/')}"
-        if (excludedDirs.any { normalizedPath.contains(it) || path.contains(it) }) return false
-
-        try {
-            if (file.length > maxSizeBytes) return false
-        } catch (_: Exception) { }
-
-        return true
-    }
-
-    /**
-     * 判断文件路径是否应该包含在日志中（基于路径字符串）
-     */
-    private fun shouldIncludeFilePath(
-        filePath: String,
-        excludedExtensions: Set<String>,
-        excludedDirs: List<String>
-    ): Boolean {
-        val path = filePath.lowercase()
-        val fileName = path.substringAfterLast('/')
-
-        // 检查文件扩展名
-        val extension = fileName.substringAfterLast('.', "")
-        if (extension in excludedExtensions) {
-            return false
-        }
-
-        val normalizedPath = "/${path.trimStart('/')}"
-        return !excludedDirs.any { normalizedPath.contains(it) || path.contains(it) }
+            .filter { GitFileFilter.shouldIncludeVirtualFile(it, rules) }
     }
 
     /**
@@ -404,6 +233,10 @@ class GitService(private val project: Project) {
         return getTodayCommitCount() > 0
     }
 
+    override fun dispose() {
+        commandExecutor.shutdown()
+    }
+
     // ---- Code Review 支持方法 ----
 
     data class ReviewInput(
@@ -423,19 +256,10 @@ class GitService(private val project: Project) {
             10
         ) ?: return emptyList()
         if (result.first != 0) return emptyList()
-        val settings = com.worklog.settings.AppSettingsState.getInstance()
-        val excludedExtensions = settings.excludedFileExtensions
-            .split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
-            .toSet()
-        val excludedDirs = settings.excludedDirectories
-            .split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
+        val rules = currentFilterRules()
         return result.second.lines()
             .filter { it.isNotBlank() }
-            .filter { shouldIncludeFilePath(it, excludedExtensions, excludedDirs) }
+            .filter { GitFileFilter.shouldIncludePath(it, rules) }
     }
 
     /**
@@ -456,7 +280,7 @@ class GitService(private val project: Project) {
         ) ?: return ReviewInput(files, "", false)
         if (result.first != 0) return ReviewInput(files, "", false)
 
-        val output = annotateDiffWithLineMarkers(result.second)
+        val output = GitDiffAnnotator.annotateWithLineMarkers(result.second)
         val truncated = output.length > maxDiffChars
         val diff = if (truncated) output.take(maxDiffChars) + "\n\n... (diff 内容过长，已截断)" else output
         return ReviewInput(files, diff, truncated)
@@ -496,19 +320,10 @@ class GitService(private val project: Project) {
             arrayOf("git", "diff-tree", "--no-commit-id", "-r", "--name-only", commitHash),
             workDir, 10
         ) ?: return ReviewInput(emptyList(), "", false)
-        val settings = com.worklog.settings.AppSettingsState.getInstance()
-        val excludedExtensions = settings.excludedFileExtensions
-            .split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
-            .toSet()
-        val excludedDirs = settings.excludedDirectories
-            .split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotBlank() }
+        val rules = currentFilterRules()
         val files = filesResult.second.lines()
             .filter { it.isNotBlank() }
-            .filter { shouldIncludeFilePath(it, excludedExtensions, excludedDirs) }
+            .filter { GitFileFilter.shouldIncludePath(it, rules) }
         if (files.isEmpty()) return ReviewInput(emptyList(), "", false)
 
         val diffCommand = mutableListOf("git", "show", commitHash, "--format=", "--unified=3", "--")
@@ -519,44 +334,10 @@ class GitService(private val project: Project) {
             workDir, 15
         ) ?: return ReviewInput(files, "", false)
 
-        val diffOutput = annotateDiffWithLineMarkers(diffResult.second)
+        val diffOutput = GitDiffAnnotator.annotateWithLineMarkers(diffResult.second)
         val truncated = diffOutput.length > maxDiffChars
         val diff = if (truncated) diffOutput.take(maxDiffChars) + "\n\n... (diff 内容过长，已截断)" else diffOutput
         return ReviewInput(files, diff, truncated)
-    }
-
-    private fun annotateDiffWithLineMarkers(diff: String): String {
-        var currentFile: String? = null
-        var newLineNumber: Int? = null
-        return buildString(diff.length + diff.lines().size * 18) {
-            diff.lineSequence().forEach { line ->
-                when {
-                    line.startsWith("+++ b/") -> {
-                        currentFile = line.removePrefix("+++ b/")
-                        newLineNumber = null
-                        appendLine(line)
-                    }
-                    line.startsWith("@@") -> {
-                        newLineNumber = Regex("""\+(\d+)""").find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                        appendLine(line)
-                    }
-                    currentFile != null && newLineNumber != null && line.startsWith("+") && !line.startsWith("+++") -> {
-                        appendLine(">> ${currentFile}:${newLineNumber}")
-                        appendLine(line)
-                        newLineNumber = newLineNumber?.plus(1)
-                    }
-                    currentFile != null && newLineNumber != null && line.startsWith(" ") -> {
-                        appendLine(">> ${currentFile}:${newLineNumber}")
-                        appendLine(line)
-                        newLineNumber = newLineNumber?.plus(1)
-                    }
-                    line.startsWith("-") && !line.startsWith("---") -> {
-                        appendLine(line)
-                    }
-                    else -> appendLine(line)
-                }
-            }
-        }.trimEnd()
     }
 
     /**
@@ -585,5 +366,9 @@ class GitService(private val project: Project) {
         ) ?: return commitHash.take(7)
         val output = result.second.trim()
         return if (result.first == 0 && output.isNotEmpty()) output else commitHash.take(7)
+    }
+
+    private fun currentFilterRules(): GitFileFilterRules {
+        return GitFileFilterRules.from(com.worklog.settings.AppSettingsState.getInstance())
     }
 }

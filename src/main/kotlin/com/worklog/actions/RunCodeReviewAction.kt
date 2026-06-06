@@ -18,7 +18,7 @@ import com.worklog.ui.CodeReviewResultDialog
 import java.util.Collections
 import java.util.WeakHashMap
 
-class RunCodeReviewAction : DumbAwareAction("代码评审", "评审当前暂存区代码变更", AllIcons.Actions.Find) {
+class RunCodeReviewAction : DumbAwareAction("代码评审", "评审当前暂存区代码变更", AllIcons.General.InspectionsOK) {
 
     private val runningStates = Collections.synchronizedMap(WeakHashMap<Project, Boolean>())
 
@@ -78,7 +78,7 @@ class RunCodeReviewAction : DumbAwareAction("代码评审", "评审当前暂存�
 
     override fun update(e: AnActionEvent) {
         val project = e.project
-        e.presentation.icon = AllIcons.Actions.Find
+        e.presentation.icon = AllIcons.General.InspectionsOK
         e.presentation.text = "代码评审"
         e.presentation.description = if (project != null && isRunning(project)) {
             "代码评审正在进行中"

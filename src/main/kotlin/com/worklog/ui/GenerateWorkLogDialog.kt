@@ -8,6 +8,11 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.worklog.settings.AppSettingsState
 import java.awt.BorderLayout
+import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
 import java.awt.Font
 import java.time.LocalDate
 import javax.swing.*
@@ -54,55 +59,76 @@ class GenerateWorkLogDialog(private val project: Project) : DialogWrapper(projec
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout(0, 14))
-        panel.border = JBUI.Borders.empty(16)
-        panel.preferredSize = java.awt.Dimension(460, 230)
+        val panel = JPanel(BorderLayout(0, 12))
+        panel.border = JBUI.Borders.empty(12, 16)
+        panel.preferredSize = Dimension(430, 230)
 
-        val headerPanel = JPanel(BorderLayout(0, 4))
-        val titleLabel = JBLabel("生成工作日志")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 17f)
-        val descriptionLabel = JBLabel("根据 Git 提交记录生成 Markdown 日志，可选择加入代码变更内容。")
-        descriptionLabel.foreground = JBColor.GRAY
-        headerPanel.add(titleLabel, BorderLayout.NORTH)
-        headerPanel.add(descriptionLabel, BorderLayout.CENTER)
-        panel.add(headerPanel, BorderLayout.NORTH)
-
-        val contentPanel = JPanel(BorderLayout(0, 12))
-        contentPanel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(14)
+        panel.add(
+            WorkLogUi.mutedLabel("根据 Git 提交记录生成 Markdown 日志，可选择是否读取代码变更。"),
+            BorderLayout.NORTH
         )
 
-        // 日期选择
-        val datePanel = JPanel(BorderLayout(10, 0))
-        datePanel.add(JBLabel("日志日期").apply {
-            font = font.deriveFont(Font.BOLD)
-        }, BorderLayout.WEST)
-        datePanel.add(dateSpinner, BorderLayout.CENTER)
-        contentPanel.add(datePanel, BorderLayout.NORTH)
+        val content = JPanel(BorderLayout(0, 12))
+        content.add(createDateSection(), BorderLayout.NORTH)
+        content.add(createOptionsSection(), BorderLayout.CENTER)
+        panel.add(content, BorderLayout.CENTER)
 
-        val optionPanel = JPanel()
-        optionPanel.layout = BoxLayout(optionPanel, BoxLayout.Y_AXIS)
-
-        // 代码访问选项
-        optionPanel.add(includeCodeCheckBox)
-        optionPanel.add(Box.createVerticalStrut(7))
-        optionPanel.add(rememberChoiceCheckBox)
-        optionPanel.add(Box.createVerticalStrut(7))
-        optionPanel.add(includeUncommittedCheckBox)
-        contentPanel.add(optionPanel, BorderLayout.CENTER)
-
-        // 说明文字
-        val infoLabel = JBLabel(
-            "<html><body style='width: 380px'>" +
-                "开启代码读取后，AI 会使用 Git diff 生成更具体的工作总结。" +
-                "</body></html>"
+        panel.add(
+            JBLabel("开启代码读取后，AI 会使用 Git diff 生成更具体的工作总结。").apply {
+                foreground = JBColor.GRAY
+            },
+            BorderLayout.SOUTH
         )
-        infoLabel.foreground = JBColor.GRAY
-        panel.add(contentPanel, BorderLayout.CENTER)
-        panel.add(infoLabel, BorderLayout.SOUTH)
 
         return panel
+    }
+
+    private fun createDateSection(): JComponent {
+        val section = JPanel(BorderLayout(0, 6))
+        section.add(sectionTitle("生成范围"), BorderLayout.NORTH)
+
+        val row = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0))
+        row.add(JBLabel("日志日期").apply {
+            preferredSize = Dimension(JBUI.scale(72), preferredSize.height)
+        })
+        dateSpinner.preferredSize = Dimension(JBUI.scale(170), dateSpinner.preferredSize.height)
+        row.add(dateSpinner)
+        section.add(row, BorderLayout.CENTER)
+        return section
+    }
+
+    private fun createOptionsSection(): JComponent {
+        val section = JPanel(BorderLayout(0, 6))
+        section.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor.border()),
+            JBUI.Borders.empty(10, 0, 0, 0)
+        )
+        section.add(sectionTitle("内容选项"), BorderLayout.NORTH)
+
+        val form = JPanel(GridBagLayout())
+        val gbc = GridBagConstraints().apply {
+            insets = Insets(0, 0, JBUI.scale(6), 0)
+            anchor = GridBagConstraints.WEST
+            fill = GridBagConstraints.HORIZONTAL
+            weightx = 1.0
+        }
+
+        gbc.gridx = 0
+        gbc.gridy = 0
+        form.add(includeCodeCheckBox, gbc)
+        gbc.gridy = 1
+        form.add(rememberChoiceCheckBox, gbc)
+        gbc.gridy = 2
+        form.add(includeUncommittedCheckBox, gbc)
+
+        section.add(form, BorderLayout.CENTER)
+        return section
+    }
+
+    private fun sectionTitle(text: String): JBLabel {
+        return JBLabel(text).apply {
+            font = font.deriveFont(Font.BOLD, 13f)
+        }
     }
 
     override fun doOKAction() {

@@ -128,7 +128,21 @@ object MarkdownUtil {
         includeCodeDiff: Boolean = false
     ): String {
         val settings = com.worklog.settings.AppSettingsState.getInstance()
-        var template = settings.workLogOutputTemplate
+        return generateFullWorkLog(
+            workLog = workLog,
+            outputTemplate = settings.workLogOutputTemplate,
+            aiSummary = aiSummary,
+            includeCodeDiff = includeCodeDiff
+        )
+    }
+
+    fun generateFullWorkLog(
+        workLog: WorkLog,
+        outputTemplate: String,
+        aiSummary: String? = null,
+        includeCodeDiff: Boolean = false
+    ): String {
+        var template = outputTemplate
 
         // 替换日期
         val dateStr = workLog.date.format(DATE_FORMATTER)

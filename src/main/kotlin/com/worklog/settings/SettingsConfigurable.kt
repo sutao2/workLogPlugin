@@ -1,5 +1,6 @@
 package com.worklog.settings
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
@@ -18,8 +19,11 @@ import com.worklog.services.AIService
 import com.worklog.services.PreCommitHookService
 import com.worklog.services.ReminderService
 import com.worklog.ui.ApiConfigDialog
+import com.worklog.ui.WorkLogUi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
@@ -35,6 +39,7 @@ import javax.swing.table.AbstractTableModel
 class SettingsConfigurable : Configurable {
 
     private var settingsPanel: JPanel? = null
+    private var settingsScope = CoroutineScope(Dispatchers.Main + Job())
 
     // AI API 配置表格
     private val apiConfigTableModel = ApiConfigTableModel()
@@ -80,6 +85,8 @@ class SettingsConfigurable : Configurable {
     }
 
     override fun createComponent(): JComponent {
+        settingsScope.cancel()
+        settingsScope = CoroutineScope(Dispatchers.Main + Job())
         val settings = AppSettingsState.getInstance()
 
         // 加载当前设置
@@ -392,49 +399,22 @@ class SettingsConfigurable : Configurable {
         loadSettings(AppSettingsState.getInstance())
     }
 
-    private fun createSectionPage(title: String, description: String, content: JPanel): JPanel {
-        val page = JPanel(BorderLayout(0, 14))
-
-        val header = JPanel(BorderLayout(0, 4))
-        header.add(JBLabel(title).apply {
-            font = font.deriveFont(Font.BOLD, 16f)
-        }, BorderLayout.NORTH)
-        header.add(JBLabel(description).apply {
-            foreground = JBColor.GRAY
-        }, BorderLayout.CENTER)
-        page.add(header, BorderLayout.NORTH)
-
-        val contentPanel = JPanel(BorderLayout())
-        contentPanel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(14)
-        )
-        content.border = JBUI.Borders.empty()
-        contentPanel.add(content, BorderLayout.CENTER)
-        page.add(contentPanel, BorderLayout.CENTER)
-
-        return wrapSettingsPage(page)
+    override fun disposeUIResources() {
+        settingsScope.cancel()
+        settingsPanel = null
     }
 
-    private fun wrapSettingsPage(content: JPanel): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.empty(14, 16)
-        content.border = JBUI.Borders.empty(4, 2)
-        panel.add(content, BorderLayout.CENTER)
-        return panel
+    private fun createSectionPage(title: String, description: String, content: JPanel): JPanel {
+        content.border = JBUI.Borders.empty()
+        return WorkLogUi.sectionPage(title, description, content)
     }
 
     private fun helpLabel(text: String): JBLabel {
-        return JBLabel("<html><body style='width: 560px'><small>$text</small></body></html>").apply {
-            foreground = JBColor.GRAY
-        }
+        return WorkLogUi.helpLabel(text)
     }
 
-    private fun createSettingsButton(text: String): JButton {
-        return JButton(text).apply {
-            margin = JBUI.insets(3, 10)
-            isFocusPainted = false
-        }
+    private fun createSettingsButton(text: String, icon: Icon? = null, action: () -> Unit): JButton {
+        return WorkLogUi.button(text, icon = icon, action = action)
     }
 
     /**
@@ -446,37 +426,17 @@ class SettingsConfigurable : Configurable {
         // 配置表格
         apiConfigTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         apiConfigTable.rowHeight = JBUI.scale(28)
-        val scrollPane = JBScrollPane(apiConfigTable)
+        val scrollPane = WorkLogUi.borderedScrollPane(apiConfigTable)
         scrollPane.preferredSize = Dimension(600, 200)
-        scrollPane.border = BorderFactory.createLineBorder(JBColor.border())
 
         // 按钮面板
         val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
-
-        val addButton = createSettingsButton("添加")
-        addButton.addActionListener { addApiConfig() }
-
-        val editButton = createSettingsButton("编辑")
-        editButton.addActionListener { editApiConfig() }
-
-        val deleteButton = createSettingsButton("删除")
-        deleteButton.addActionListener { deleteApiConfig() }
-
-        val copyButton = createSettingsButton("复制")
-        copyButton.addActionListener { copyApiConfig() }
-
-        val enableButton = createSettingsButton("启用")
-        enableButton.addActionListener { enableApiConfig() }
-
-        val testButton = createSettingsButton("测试连接")
-        testButton.addActionListener { testSelectedApiConfig() }
-
-        buttonPanel.add(addButton)
-        buttonPanel.add(editButton)
-        buttonPanel.add(copyButton)
-        buttonPanel.add(enableButton)
-        buttonPanel.add(deleteButton)
-        buttonPanel.add(testButton)
+        buttonPanel.add(createSettingsButton("添加", AllIcons.General.Add) { addApiConfig() })
+        buttonPanel.add(createSettingsButton("编辑", AllIcons.Actions.Edit) { editApiConfig() })
+        buttonPanel.add(createSettingsButton("复制", AllIcons.Actions.Copy) { copyApiConfig() })
+        buttonPanel.add(createSettingsButton("启用", AllIcons.Actions.Checked) { enableApiConfig() })
+        buttonPanel.add(createSettingsButton("删除", AllIcons.General.Remove) { deleteApiConfig() })
+        buttonPanel.add(createSettingsButton("测试连接", AllIcons.Actions.Execute) { testSelectedApiConfig() })
 
         panel.add(buttonPanel, BorderLayout.NORTH)
         panel.add(scrollPane, BorderLayout.CENTER)
@@ -620,7 +580,7 @@ class SettingsConfigurable : Configurable {
             }
 
             // 异步测试连接
-            CoroutineScope(Dispatchers.Main).launch {
+            settingsScope.launch {
                 try {
                     val aiService = project.getService(AIService::class.java)
                     withContext(Dispatchers.IO) {

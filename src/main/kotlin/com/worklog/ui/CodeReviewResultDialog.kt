@@ -32,8 +32,8 @@ import org.commonmark.renderer.html.HtmlRenderer
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Font
-import java.awt.GridLayout
 import java.awt.datatransfer.StringSelection
 import java.awt.event.ActionEvent
 import java.awt.event.KeyAdapter
@@ -50,8 +50,8 @@ import javax.swing.Action
 import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.JSplitPane
 import javax.swing.JTextArea
 import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
@@ -62,45 +62,47 @@ class CodeReviewResultDialog(
     private val project: Project,
     private val result: ReviewResult,
     private val onReReview: (() -> Unit)? = null,
+    private val allowContinueCommit: Boolean = false,
     private val onContinueCommit: (() -> Unit)? = null
 ) : DialogWrapper(project) {
 
-    private var resultTree: Tree? = null
+    private val detailSearchText = buildDetailContent()
+    private val reviewIssues = CodeReviewIssueGrouper.buildReviewIssues(result, detailSearchText)
+    private val fileGroups = CodeReviewIssueGrouper.buildFileGroups(result, detailSearchText)
+    private var reviewTree: Tree? = null
     private var openFileButton: JButton? = null
     private var issueTitleLabel: JBLabel? = null
     private var issueMetaLabel: JBLabel? = null
     private var issueMessageArea: JTextArea? = null
-    private var selectedNavigableNode: ReviewNode.Navigable? = null
+    private var selectedIssue: ReviewIssue? = null
+    private var selectedFileGroup: ReviewFileGroup? = null
+    private var initialTreePath: TreePath? = null
     private val activeHighlighters = mutableListOf<RangeHighlighter>()
-    private val detailSearchText = buildDetailContent()
     private val cachedExportHtmlContent by lazy { renderHtml(buildHtmlBodyContent()) }
 
     init {
         title = result.title
-        isModal = onContinueCommit != null
-        setSize(860, 520)
-        setOKButtonText(if (onContinueCommit != null) "取消" else "关闭")
+        isModal = allowContinueCommit
+        setSize(920, 560)
+        setOKButtonText(if (allowContinueCommit) "取消" else "关闭")
         init()
         ApplicationManager.getApplication().invokeLater {
-            navigateToFirstIssue()
+            selectInitialReviewItem()
         }
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(900, 560)
-        panel.border = JBUI.Borders.empty(10)
+        panel.preferredSize = Dimension(980, 560)
+        panel.border = JBUI.Borders.empty(10, 14, 8, 14)
 
         panel.add(createSummaryPanel(), BorderLayout.NORTH)
 
-        val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT)
-        splitPane.border = BorderFactory.createEmptyBorder()
-        splitPane.dividerSize = JBUI.scale(8)
-        splitPane.leftComponent = createResultTreePanel()
-        splitPane.rightComponent = createReportPanel()
-        splitPane.dividerLocation = JBUI.scale(310)
-        splitPane.resizeWeight = 0.0
-        panel.add(splitPane, BorderLayout.CENTER)
+        val workspace = JPanel(BorderLayout(12, 0))
+        workspace.border = JBUI.Borders.empty(10, 0, 0, 0)
+        workspace.add(createNavigationPanel(), BorderLayout.WEST)
+        workspace.add(createReportPanel(), BorderLayout.CENTER)
+        panel.add(workspace, BorderLayout.CENTER)
 
         return panel
     }
@@ -109,56 +111,40 @@ class CodeReviewResultDialog(
         val panel = JPanel(BorderLayout(14, 0))
         panel.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
-            JBUI.Borders.empty(0, 2, 12, 2)
+            JBUI.Borders.empty(0, 2, 8, 2)
         )
 
         val titlePanel = JPanel(BorderLayout(0, 4))
-        titlePanel.add(JBLabel(result.title).apply {
-            font = font.deriveFont(Font.BOLD, 16f)
-        }, BorderLayout.NORTH)
-        titlePanel.add(JBLabel("${reviewScopeLabel()} · ${if (result.truncated) "Diff 已截断" else "Diff 完整"}").apply {
+        titlePanel.add(JBLabel(summaryText()).apply {
             foreground = JBColor.GRAY
-        }, BorderLayout.CENTER)
+            if (result.truncated) {
+                icon = AllIcons.General.Warning
+            }
+        }, BorderLayout.NORTH)
 
-        val metricsPanel = JPanel(GridLayout(1, 3, 8, 0))
-        metricsPanel.add(createMetricPanel("问题", result.issues.size.toString(), result.hasFindings))
-        metricsPanel.add(createMetricPanel("文件", result.reviewedFiles.size.toString(), false))
-        metricsPanel.add(createMetricPanel("提交", result.sourceCommitHashes.size.toString(), false))
-
+        val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0))
+        actionPanel.add(JBLabel(statusLabel()).apply {
+            icon = if (result.hasFindings) AllIcons.General.Warning else AllIcons.General.InspectionsOK
+            foreground = if (result.hasFindings) severityColor("HIGH") else JBColor.GRAY
+        })
         panel.add(titlePanel, BorderLayout.CENTER)
-        panel.add(metricsPanel, BorderLayout.EAST)
+        panel.add(actionPanel, BorderLayout.EAST)
         return panel
     }
 
-    private fun createMetricPanel(label: String, value: String, warning: Boolean): JPanel {
-        val panel = JPanel(BorderLayout(0, 2))
-        panel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(7, 12)
-        )
-        panel.add(JBLabel(value).apply {
-            font = font.deriveFont(Font.BOLD, 16f)
-            foreground = if (warning) severityColor("HIGH") else JBColor.foreground()
-            horizontalAlignment = JBLabel.CENTER
-        }, BorderLayout.NORTH)
-        panel.add(JBLabel(label).apply {
-            foreground = JBColor.GRAY
-            horizontalAlignment = JBLabel.CENTER
-        }, BorderLayout.CENTER)
-        return panel
-    }
-
-    private fun createResultTreePanel(): JComponent {
-        val tree = Tree(buildTreeModel())
-        resultTree = tree
+    private fun createNavigationPanel(): JComponent {
+        val tree = Tree(buildReviewTreeModel())
+        reviewTree = tree
         tree.isRootVisible = false
         tree.showsRootHandles = true
+        tree.rowHeight = JBUI.scale(24)
         tree.cellRenderer = ReviewTreeRenderer()
+        tree.border = JBUI.Borders.empty()
         tree.emptyText.text = "没有评审结果"
         TreeSpeedSearch(tree)
         tree.addTreeSelectionListener {
-            val node = tree.selectionPath?.lastPathComponent as? DefaultMutableTreeNode
-            handleTreeSelection(node?.userObject as? ReviewNode)
+            val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
+            handleReviewTreeSelection(node?.userObject as? ReviewTreeItem)
         }
         tree.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
@@ -174,50 +160,40 @@ class CodeReviewResultDialog(
                 }
             }
         })
-        expandTree(tree)
 
-        val header = JPanel(BorderLayout(0, 3))
-        header.border = JBUI.Borders.empty(0, 2, 10, 2)
-        val titleLabel = JBLabel("代码评审")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 15f)
+        val treePanel = JPanel(BorderLayout(0, 6))
+        treePanel.add(compactHeader("代码评审", "${displayIssueCount()} 个问题"), BorderLayout.NORTH)
+        treePanel.add(flatScrollPane(tree), BorderLayout.CENTER)
 
-        val scope = if (result.sourceCommitHashes.isEmpty()) "暂存区" else "${result.sourceCommitHashes.size} 个提交"
-        val metaLabel = JBLabel("${result.issues.size} 问题 · ${result.reviewedFiles.size} 文件 · $scope")
-        metaLabel.foreground = JBColor.GRAY
-        header.add(titleLabel, BorderLayout.NORTH)
-        header.add(metaLabel, BorderLayout.CENTER)
-
-        val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.empty(12, 0, 0, 10)
-        panel.add(header, BorderLayout.NORTH)
-        panel.add(JBScrollPane(tree).apply {
-            border = BorderFactory.createLineBorder(JBColor.border())
-        }, BorderLayout.CENTER)
+        val panel = JPanel(BorderLayout(0, 0))
+        panel.preferredSize = Dimension(JBUI.scale(306), JBUI.scale(500))
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 0, 1, JBColor.border()),
+            JBUI.Borders.empty(0, 0, 0, 12)
+        )
+        panel.add(treePanel, BorderLayout.CENTER)
         return panel
     }
 
     private fun createReportPanel(): JComponent {
-        val panel = JPanel(BorderLayout(0, 10))
-        panel.border = JBUI.Borders.empty(12, 0, 0, 0)
+        val panel = JPanel(BorderLayout(0, 8))
+        panel.border = JBUI.Borders.empty()
 
         val toolbar = JPanel(BorderLayout(10, 0))
-        toolbar.border = JBUI.Borders.empty(0, 2, 0, 2)
-        openFileButton = JButton("打开源码").apply {
-            icon = AllIcons.Actions.Find
+        toolbar.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+            JBUI.Borders.empty(0, 0, 8, 0)
+        )
+        openFileButton = WorkLogUi.button("打开源码", icon = AllIcons.Actions.Find) {
+            openSelectedFile()
+        }.apply {
             isEnabled = false
-            margin = JBUI.insets(3, 10)
-            isFocusPainted = false
-            addActionListener { openSelectedFile() }
         }
 
-        val titlePanel = JPanel(BorderLayout(0, 3))
-        titlePanel.add(JBLabel("问题详情").apply {
-            font = font.deriveFont(Font.BOLD, 15f)
-        }, BorderLayout.NORTH)
-        titlePanel.add(JBLabel("选择左侧问题后，会定位并高亮到编辑器源码行").apply {
-            foreground = JBColor.GRAY
-        }, BorderLayout.CENTER)
-        toolbar.add(titlePanel, BorderLayout.CENTER)
+        toolbar.add(
+            compactHeader("问题详情", "Enter 或双击打开源码"),
+            BorderLayout.CENTER
+        )
         toolbar.add(openFileButton, BorderLayout.EAST)
         if (result.truncated) {
             toolbar.add(JBLabel("Diff 已截断").apply {
@@ -233,123 +209,66 @@ class CodeReviewResultDialog(
 
     private fun createIssueDetailPanel(): JComponent {
         val panel = JPanel(BorderLayout(0, 10))
-        panel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(JBColor.border()),
-            JBUI.Borders.empty(12)
-        )
+        panel.border = JBUI.Borders.empty(8, 0, 0, 0)
 
         issueTitleLabel = JBLabel(if (result.hasFindings) "选择一个问题查看详情" else "未发现明显问题").apply {
-            font = font.deriveFont(Font.BOLD, 16f)
+            font = font.deriveFont(Font.BOLD, 15f)
         }
         issueMetaLabel = JBLabel("${result.reviewedFiles.size} 个文件 · ${result.issues.size} 个结构化问题").apply {
             foreground = JBColor.GRAY
         }
 
         val titlePanel = JPanel(BorderLayout(0, 5))
-        titlePanel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
-            JBUI.Borders.empty(0, 0, 10, 0)
-        )
+        titlePanel.border = JBUI.Borders.empty(0, 0, 4, 0)
         titlePanel.add(issueTitleLabel, BorderLayout.NORTH)
         titlePanel.add(issueMetaLabel, BorderLayout.CENTER)
         panel.add(titlePanel, BorderLayout.NORTH)
 
         issueMessageArea = createReadOnlyTextArea("问题说明会显示在这里。")
-        panel.add(JBScrollPane(issueMessageArea).apply {
-            border = BorderFactory.createLineBorder(JBColor.border())
-        }, BorderLayout.CENTER)
+        panel.add(flatScrollPane(issueMessageArea!!), BorderLayout.CENTER)
 
         return panel
     }
 
+    private fun compactHeader(title: String, meta: String): JComponent {
+        return JPanel(BorderLayout(8, 0)).apply {
+            add(JBLabel(title).apply {
+                font = font.deriveFont(Font.BOLD, 12f)
+            }, BorderLayout.WEST)
+            add(JBLabel(meta).apply {
+                foreground = JBColor.GRAY
+                horizontalAlignment = JLabel.RIGHT
+            }, BorderLayout.EAST)
+        }
+    }
+
     private fun createReadOnlyTextArea(text: String): JTextArea {
-        return JTextArea(text).apply {
-            isEditable = false
-            lineWrap = true
-            wrapStyleWord = true
-            border = JBUI.Borders.empty(14)
-            background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
-            foreground = JBColor.foreground()
-            font = font.deriveFont(13f)
+        return WorkLogUi.editorArea(readOnly = true).apply {
+            this.text = text
+            margin = JBUI.insets(6, 0)
+            border = JBUI.Borders.empty()
+            font = JBLabel().font.deriveFont(13f)
         }
     }
 
-    private fun buildTreeModel(): DefaultTreeModel {
-        val root = DefaultMutableTreeNode(
-            ReviewNode.Root(if (result.hasFindings) "发现需要关注的问题" else "未发现明显问题")
-        )
-
-        val findings = buildFindingNodes()
-        if (findings.isNotEmpty()) {
-            val findingsNode = DefaultMutableTreeNode(ReviewNode.GroupNode("问题", findings.size))
-            findings
-                .groupBy { it.severity }
-                .toSortedMap(compareBy { severityRank(it) })
-                .forEach { (severity, severityFindings) ->
-                    val severityNode = DefaultMutableTreeNode(ReviewNode.SeverityNode(severity, severityFindings.size))
-                    severityFindings
-                        .groupBy { it.targetPath }
-                        .forEach { (file, fileFindings) ->
-                            if (file.isNullOrBlank()) {
-                                fileFindings.forEach { severityNode.add(DefaultMutableTreeNode(it)) }
-                            } else {
-                                val fileNode = DefaultMutableTreeNode(
-                                    ReviewNode.FileNode(file, fileFindings.firstOrNull()?.targetLine)
-                                )
-                                fileFindings.forEach { fileNode.add(DefaultMutableTreeNode(it)) }
-                                severityNode.add(fileNode)
-                            }
-                        }
-                    findingsNode.add(severityNode)
-                }
-            root.add(findingsNode)
-        }
-
-        val filesNode = DefaultMutableTreeNode(ReviewNode.GroupNode("评审文件", result.reviewedFiles.size))
-        result.reviewedFiles.forEach { filePath ->
-            filesNode.add(DefaultMutableTreeNode(ReviewNode.FileNode(filePath, firstIssueLine(filePath))))
-        }
-        root.add(filesNode)
-
-        if (result.reviewedCommitSummaries.isNotEmpty()) {
-            val commitsNode = DefaultMutableTreeNode(ReviewNode.GroupNode("评审提交", result.reviewedCommitSummaries.size))
-            result.reviewedCommitSummaries.forEach { summary ->
-                commitsNode.add(DefaultMutableTreeNode(ReviewNode.CommitNode(summary)))
-            }
-            root.add(commitsNode)
-        } else if (result.sourceCommitHashes.isNotEmpty()) {
-            val commitsNode = DefaultMutableTreeNode(ReviewNode.GroupNode("评审提交", result.sourceCommitHashes.size))
-            result.sourceCommitHashes.forEach { hash ->
-                commitsNode.add(DefaultMutableTreeNode(ReviewNode.CommitNode(hash)))
-            }
-            root.add(commitsNode)
-        }
-
-        if (result.truncated) {
-            root.add(DefaultMutableTreeNode(ReviewNode.WarningNode("Diff 内容已截断，评审可能不完整")))
-        }
-
-        return DefaultTreeModel(root)
-    }
-
-    private fun handleTreeSelection(node: ReviewNode?) {
-        selectedNavigableNode = node as? ReviewNode.Navigable
-        openFileButton?.isEnabled = selectedNavigableNode?.targetPath != null
-        when (node) {
-            is ReviewNode.FileNode -> updateIssueDetails(null)
-            is ReviewNode.FindingNode -> {
-                updateIssueDetails(node.issue)
-                navigateToIssue(node.issue)
-            }
-            is ReviewNode.CommitNode -> updateIssueDetails(null)
-            else -> updateIssueDetails(null)
+    private fun flatScrollPane(component: JComponent): JBScrollPane {
+        return JBScrollPane(component).apply {
+            border = JBUI.Borders.empty()
+            viewportBorder = JBUI.Borders.empty()
         }
     }
 
     private fun openSelectedFile() {
-        val node = selectedNavigableNode ?: return
-        val path = node.targetPath ?: return
-        openFile(path, node.targetLine, highlight = true)
+        val issue = selectedIssue
+        if (issue != null && issue.filePath.isNotBlank()) {
+            openFile(issue.filePath, issue.line, highlight = issue.line != null)
+            return
+        }
+
+        val group = selectedFileGroup ?: return
+        if (group.canOpenFile) {
+            openFile(group.path, null, highlight = false)
+        }
     }
 
     private fun openFile(path: String, line: Int?, highlight: Boolean = false) {
@@ -370,12 +289,6 @@ class CodeReviewResultDialog(
                 highlightCurrentEditorLine(lineIndex)
             }
         }
-    }
-
-    private fun navigateToFirstIssue() {
-        val firstIssue = result.issues.firstOrNull() ?: return
-        updateIssueDetails(firstIssue)
-        navigateToIssue(firstIssue)
     }
 
     private fun navigateToIssue(issue: ReviewIssue) {
@@ -411,14 +324,27 @@ class CodeReviewResultDialog(
 
     private fun updateIssueDetails(issue: ReviewIssue?) {
         if (issue == null) {
-            issueTitleLabel?.text = if (result.hasFindings) "选择一个问题查看详情" else "未发现明显问题"
-            issueTitleLabel?.foreground = JBColor.foreground()
-            issueMetaLabel?.text = "${result.reviewedFiles.size} 个文件 · ${result.issues.size} 个结构化问题"
-            issueMessageArea?.text = if (result.issues.isEmpty() && result.hasFindings) {
-                "当前 AI 响应没有提供可定位的结构化问题。请重新评审，新的提示词会要求返回 file/line。"
-            } else {
-                "从左侧选择问题后会直接跳转到源码位置，并在编辑器中高亮对应行。"
+            val group = selectedFileGroup
+            issueTitleLabel?.text = when {
+                group == null && fileGroups.isEmpty() -> "没有可展示的评审结果"
+                group != null && group.issues.isEmpty() -> "未发现明显问题"
+                result.hasFindings -> "选择一个问题查看详情"
+                else -> "未发现明显问题"
             }
+            issueTitleLabel?.foreground = JBColor.foreground()
+            issueMetaLabel?.text = group?.let {
+                "${it.displayPath} · ${it.issues.size} 个问题"
+            } ?: "${fileGroups.size} 个文件 · ${displayIssueCount()} 个问题"
+            issueMessageArea?.text = if (fileGroups.isEmpty()) {
+                detailSearchText.ifBlank { "没有可展示的评审结果。" }
+            } else if (group != null && group.issues.isEmpty()) {
+                "该文件参与了评审，未发现可定位问题。"
+            } else if (result.issues.isEmpty() && result.hasFindings) {
+                "当前 AI 响应没有提供完整的结构化问题。已根据文本内容生成可预览的问题分组；如需更准确定位，请重新评审。"
+            } else {
+                "从左侧选择具体问题后会直接跳转到源码位置，并在编辑器中高亮对应行。"
+            }
+            issueMessageArea?.caretPosition = 0
             return
         }
 
@@ -438,90 +364,223 @@ class CodeReviewResultDialog(
         return File(basePath, path)
     }
 
-    private fun firstIssueLine(path: String): Int? {
-        return result.issues.firstOrNull { it.filePath == path }?.line
-    }
-
-    private fun expandTree(tree: JTree) {
-        for (row in 0 until tree.rowCount) {
-            tree.expandRow(row)
-        }
-        tree.selectionPath = TreePath((tree.model.root as DefaultMutableTreeNode).path)
-    }
-
-    private fun buildFindingNodes(): List<ReviewNode.FindingNode> {
-        if (!result.hasFindings) {
-            return emptyList()
-        }
-        if (result.issues.isNotEmpty()) {
-            return result.issues.map { ReviewNode.FindingNode(it) }
-        }
-
-        val seen = mutableSetOf<String>()
-        return detailSearchText.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .filter { line ->
-                severityOf(line) != null || result.reviewedFiles.any { file ->
-                    line.contains(file) || line.contains(file.substringAfterLast('/'))
+    private fun handleReviewTreeSelection(item: ReviewTreeItem?) {
+        when (item) {
+            is ReviewTreeItem.Finding -> {
+                selectedIssue = item.issue
+                selectedFileGroup = fileGroupForIssue(item.issue)
+                updateIssueDetails(item.issue)
+                updateOpenFileButton()
+                if (item.issue.filePath.isNotBlank()) {
+                    navigateToIssue(item.issue)
                 }
             }
-            .mapNotNull { line ->
-                val title = cleanupFindingTitle(line)
-                if (title.length < 4 || !seen.add(title)) {
-                    null
-                } else {
-                    val file = findMentionedFile(line)
-                    ReviewNode.FindingNode(
-                        ReviewIssue(
-                            filePath = file.orEmpty(),
-                            line = lineReferenceOf(line),
-                            severity = severityOf(line) ?: "MEDIUM",
-                            title = title,
-                            message = line
-                        )
-                    )
-                }
+            is ReviewTreeItem.File -> {
+                selectedFileGroup = item.group
+                selectedIssue = null
+                updateFileSummary(item.group)
+                updateOpenFileButton()
             }
-            .take(20)
+            is ReviewTreeItem.Severity -> {
+                selectedIssue = null
+                selectedFileGroup = null
+                updateSeveritySummary(item)
+                updateOpenFileButton()
+            }
+            is ReviewTreeItem.Group -> {
+                selectedIssue = null
+                selectedFileGroup = null
+                updateGroupSummary(item)
+                updateOpenFileButton()
+            }
+            else -> {
+                selectedIssue = null
+                selectedFileGroup = null
+                updateIssueDetails(null)
+                updateOpenFileButton()
+            }
+        }
+    }
+
+    private fun selectInitialReviewItem() {
+        val tree = reviewTree
+        val path = initialTreePath
+        if (tree != null && path != null) {
+            tree.expandPath(path.parentPath)
+            tree.selectionPath = path
+            tree.scrollPathToVisible(path)
+            return
+        }
+
+        if (fileGroups.isEmpty() && reviewIssues.isEmpty()) {
+            updateIssueDetails(null)
+            updateOpenFileButton()
+        }
+    }
+
+    private fun buildReviewTreeModel(): DefaultTreeModel {
+        initialTreePath = null
+        val root = DefaultMutableTreeNode(ReviewTreeItem.Root)
+
+        if (reviewIssues.isNotEmpty()) {
+            root.add(buildFindingsTree())
+        } else if (fileGroups.isNotEmpty()) {
+            val filesNode = DefaultMutableTreeNode(ReviewTreeItem.Group("评审文件", fileGroups.size))
+            fileGroups.forEach { group ->
+                val fileNode = DefaultMutableTreeNode(ReviewTreeItem.File(group))
+                filesNode.add(fileNode)
+            }
+            root.add(filesNode)
+        } else {
+            root.add(DefaultMutableTreeNode(ReviewTreeItem.Group("没有可展示的评审结果", 0)))
+        }
+
+        findInitialTreeNode(root)?.let { initialTreePath = TreePath(it.path) }
+        return DefaultTreeModel(root)
+    }
+
+    private fun buildFindingsTree(): DefaultMutableTreeNode {
+        val findingsNode = DefaultMutableTreeNode(ReviewTreeItem.Group("问题", reviewIssues.size))
+        reviewIssues
+            .groupBy { it.severity }
             .toList()
+            .sortedBy { (severity, _) -> CodeReviewIssueGrouper.severityRank(severity) }
+            .forEach { (severity, severityIssues) ->
+                val severityNode = DefaultMutableTreeNode(ReviewTreeItem.Severity(severity, severityIssues.size))
+                severityIssues
+                    .groupBy { it.filePath.ifBlank { CodeReviewIssueGrouper.UNLOCATED_GROUP_PATH } }
+                    .toList()
+                    .sortedBy { (path, _) -> displayPathForIssuePath(path).lowercase() }
+                    .forEach { (path, fileIssues) ->
+                        val group = fileGroupForPath(path)
+                        if (group == null) {
+                            fileIssues.forEach { severityNode.add(findingNode(it)) }
+                        } else {
+                            val fileNode = DefaultMutableTreeNode(ReviewTreeItem.File(group))
+                            fileIssues.forEach { fileNode.add(findingNode(it)) }
+                            severityNode.add(fileNode)
+                        }
+                    }
+                findingsNode.add(severityNode)
+            }
+        return findingsNode
     }
 
-    private fun severityOf(line: String): String? {
-        return when {
-            line.contains("严重") || line.contains("高") || line.contains("P0") || line.contains("P1") -> "高"
-            line.contains("中") || line.contains("P2") -> "中"
-            line.contains("低") || line.contains("P3") -> "低"
-            else -> null
+    private fun findingNode(issue: ReviewIssue): DefaultMutableTreeNode {
+        return DefaultMutableTreeNode(ReviewTreeItem.Finding(issue))
+    }
+
+    private fun findInitialTreeNode(node: DefaultMutableTreeNode): DefaultMutableTreeNode? {
+        return findFirstTreeNode(node) { it is ReviewTreeItem.Finding }
+            ?: findFirstTreeNode(node) { it is ReviewTreeItem.File }
+    }
+
+    private fun findFirstTreeNode(
+        node: DefaultMutableTreeNode,
+        predicate: (ReviewTreeItem) -> Boolean
+    ): DefaultMutableTreeNode? {
+        val item = node.userObject as? ReviewTreeItem
+        if (item != null && predicate(item)) {
+            return node
+        }
+        for (index in 0 until node.childCount) {
+            val child = node.getChildAt(index) as? DefaultMutableTreeNode ?: continue
+            val match = findFirstTreeNode(child, predicate)
+            if (match != null) {
+                return match
+            }
+        }
+        return null
+    }
+
+    private fun updateFileSummary(group: ReviewFileGroup) {
+        issueTitleLabel?.text = group.displayPath.substringAfterLast('/').ifBlank { group.displayPath }
+        issueTitleLabel?.foreground = JBColor.foreground()
+        issueMetaLabel?.text = if (group.issues.isEmpty()) {
+            "${group.displayPath} · 无问题"
+        } else {
+            "${group.displayPath} · ${group.issues.size} 个问题 · 最高 ${severityLabel(group.highestSeverity.orEmpty())}"
+        }
+        issueMessageArea?.text = if (group.issues.isEmpty()) {
+            "该文件参与了评审，未发现可定位问题。"
+        } else {
+            group.issues.joinToString("\n") { issue ->
+                "- ${severityLabel(issue.severity)}${issue.line?.let { " :$it" } ?: ""} ${issue.title}"
+            }
+        }
+        issueMessageArea?.caretPosition = 0
+    }
+
+    private fun updateSeveritySummary(item: ReviewTreeItem.Severity) {
+        issueTitleLabel?.text = "${severityLabel(item.severity)}风险问题"
+        issueTitleLabel?.foreground = severityColor(item.severity)
+        issueMetaLabel?.text = "${item.count} 个问题 · ${fileGroups.size} 个文件"
+        issueMessageArea?.text = reviewIssues
+            .filter { it.severity == item.severity }
+            .joinToString("\n") { issue ->
+                "- ${issue.filePath.ifBlank { "未定位问题" }}${issue.line?.let { ":$it" } ?: ""} ${issue.title}"
+            }
+            .ifBlank { "该级别下没有可展示的问题。" }
+        issueMessageArea?.caretPosition = 0
+    }
+
+    private fun updateGroupSummary(item: ReviewTreeItem.Group) {
+        issueTitleLabel?.text = item.title
+        issueTitleLabel?.foreground = JBColor.foreground()
+        issueMetaLabel?.text = "${fileGroups.size} 个文件 · ${displayIssueCount()} 个问题"
+        issueMessageArea?.text = when {
+            displayIssueCount() > 0 -> severitySummaryText()
+            fileGroups.isNotEmpty() -> "已完成 ${fileGroups.size} 个文件的评审，未发现明显问题。"
+            else -> detailSearchText.ifBlank { "没有可展示的评审结果。" }
+        }
+        issueMessageArea?.caretPosition = 0
+    }
+
+    private fun severitySummaryText(): String {
+        return reviewIssues
+            .groupBy { severityLabel(it.severity) }
+            .entries
+            .sortedBy { (severity, _) -> CodeReviewIssueGrouper.severityRank(severity) }
+            .joinToString("\n") { (severity, issues) ->
+                "- $severity：${issues.size} 个问题"
+            }
+    }
+
+    private fun fileGroupForIssue(issue: ReviewIssue): ReviewFileGroup? {
+        return fileGroupForPath(issue.filePath.ifBlank { CodeReviewIssueGrouper.UNLOCATED_GROUP_PATH })
+    }
+
+    private fun fileGroupForPath(path: String): ReviewFileGroup? {
+        val normalizedPath = if (path.isBlank()) CodeReviewIssueGrouper.UNLOCATED_GROUP_PATH else path
+        return fileGroups.firstOrNull { group ->
+            if (group.isUnlocated) {
+                normalizedPath == CodeReviewIssueGrouper.UNLOCATED_GROUP_PATH
+            } else {
+                group.path == normalizedPath
+            }
         }
     }
 
-    private fun cleanupFindingTitle(line: String): String {
-        return line
-            .removePrefix("###")
-            .removePrefix("##")
-            .removePrefix("#")
-            .removePrefix("-")
-            .removePrefix("*")
-            .trim()
-            .trim('|')
-            .trim()
-            .let { if (it.length > 120) it.take(117) + "..." else it }
-    }
-
-    private fun findMentionedFile(line: String): String? {
-        return result.reviewedFiles.firstOrNull { file ->
-            line.contains(file) || line.contains(file.substringAfterLast('/'))
+    private fun displayPathForIssuePath(path: String): String {
+        return if (path == CodeReviewIssueGrouper.UNLOCATED_GROUP_PATH) {
+            "未定位问题"
+        } else {
+            path
         }
     }
 
-    private fun lineReferenceOf(line: String): Int? {
-        return Regex(""":(\d+)\b""").find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    private fun updateOpenFileButton() {
+        openFileButton?.isEnabled =
+            selectedIssue?.filePath?.isNotBlank() == true || selectedFileGroup?.canOpenFile == true
+    }
+
+    private fun displayIssueCount(): Int {
+        return fileGroups.sumOf { it.issues.size }
     }
 
     override fun dispose() {
         clearEditorHighlights()
-        resultTree = null
+        reviewTree = null
         super.dispose()
     }
 
@@ -535,7 +594,7 @@ class CodeReviewResultDialog(
                 }
             })
         }
-        if (onContinueCommit != null) {
+        if (allowContinueCommit && onContinueCommit != null) {
             actions.add(object : AbstractAction("继续提交") {
                 override fun actionPerformed(e: ActionEvent?) {
                     close(OK_EXIT_CODE)
@@ -702,6 +761,15 @@ class CodeReviewResultDialog(
         } else {
             "${result.sourceCommitHashes.size} 个提交"
         }
+    }
+
+    private fun summaryText(): String {
+        val diffState = if (result.truncated) "Diff 已截断" else "Diff 完整"
+        return "${reviewScopeLabel()} · ${displayIssueCount()} 个问题 · ${fileGroups.size} 个文件 · $diffState"
+    }
+
+    private fun statusLabel(): String {
+        return if (result.hasFindings) "需要关注" else "未发现明显问题"
     }
 
     private fun issueLocation(issue: ReviewIssue): String {
@@ -1008,46 +1076,12 @@ class CodeReviewResultDialog(
             .replace("'", "&#39;")
     }
 
-    private sealed class ReviewNode {
-        interface Navigable {
-            val targetPath: String?
-            val targetLine: Int?
-        }
-
-        data class Root(val text: String) : ReviewNode() {
-            override fun toString(): String = text
-        }
-
-        data class GroupNode(val title: String, val count: Int) : ReviewNode() {
-            override fun toString(): String = "$title ($count)"
-        }
-
-        data class FileNode(val path: String, val line: Int?) : ReviewNode(), Navigable {
-            override val targetPath: String? = path.takeIf { it.isNotBlank() }
-            override val targetLine: Int? = line
-
-            override fun toString(): String = path
-        }
-
-        data class SeverityNode(val severity: String, val count: Int) : ReviewNode() {
-            override fun toString(): String = "${severityLabel(severity)} ($count)"
-        }
-
-        data class FindingNode(val issue: ReviewIssue) : ReviewNode(), Navigable {
-            val severity: String = issue.severity
-            override val targetPath: String? = issue.filePath.takeIf { it.isNotBlank() }
-            override val targetLine: Int? = issue.line
-
-            override fun toString(): String = issue.title
-        }
-
-        data class CommitNode(val summary: String) : ReviewNode() {
-            override fun toString(): String = summary
-        }
-
-        data class WarningNode(val message: String) : ReviewNode() {
-            override fun toString(): String = message
-        }
+    private sealed class ReviewTreeItem {
+        data object Root : ReviewTreeItem()
+        data class Group(val title: String, val count: Int) : ReviewTreeItem()
+        data class Severity(val severity: String, val count: Int) : ReviewTreeItem()
+        data class File(val group: ReviewFileGroup) : ReviewTreeItem()
+        data class Finding(val issue: ReviewIssue) : ReviewTreeItem()
     }
 
     private class ReviewTreeRenderer : ColoredTreeCellRenderer() {
@@ -1060,59 +1094,49 @@ class CodeReviewResultDialog(
             row: Int,
             hasFocus: Boolean
         ) {
-            val userObject = (value as? DefaultMutableTreeNode)?.userObject
-            when (userObject) {
-                is ReviewNode.Root -> {
-                    icon = AllIcons.Actions.Find
-                    append(userObject.text, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                }
-                is ReviewNode.GroupNode -> {
+            val item = (value as? DefaultMutableTreeNode)?.userObject as? ReviewTreeItem
+            when (item) {
+                is ReviewTreeItem.Group -> {
                     icon = AllIcons.Nodes.Folder
-                    append(userObject.title, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    append(" (${userObject.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    append(item.title, SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("  ${item.count}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 }
-                is ReviewNode.SeverityNode -> {
+                is ReviewTreeItem.Severity -> {
                     icon = AllIcons.General.Warning
-                    append(severityLabel(userObject.severity), severityTextAttributes(userObject.severity))
-                    append(" (${userObject.count})", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    append(severityLabel(item.severity), severityTextAttributes(item.severity))
+                    append("  ${item.count}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 }
-                is ReviewNode.FindingNode -> {
+                is ReviewTreeItem.File -> {
+                    val group = item.group
+                    icon = if (group.isUnlocated) AllIcons.General.Warning else AllIcons.FileTypes.Any_type
+                    append(fileName(group), SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    if (group.issues.isNotEmpty()) {
+                        append("  ${group.issues.size}", fileMetaAttributes(group))
+                    }
+                    toolTipText = group.displayPath
+                }
+                is ReviewTreeItem.Finding -> {
                     icon = AllIcons.General.Warning
-                    append(userObject.issue.title, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    userObject.issue.line?.let {
-                        append(" :$it", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    append(item.issue.title, SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    item.issue.line?.let {
+                        append("  :$it", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     }
-                    userObject.targetPath?.let {
-                        append(" · ${it.substringAfterLast('/')}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                    }
+                    toolTipText = item.issue.message.ifBlank { item.issue.title }
                 }
-                is ReviewNode.FileNode -> {
-                    icon = AllIcons.FileTypes.Any_type
-                    append(userObject.path, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    userObject.line?.let {
-                        append(":$it", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                    }
+                ReviewTreeItem.Root -> {
+                    append("代码评审", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                 }
-                is ReviewNode.CommitNode -> {
-                    icon = AllIcons.Vcs.History
-                    append(userObject.summary, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                }
-                is ReviewNode.WarningNode -> {
-                    icon = AllIcons.General.Warning
-                    append(userObject.message, SimpleTextAttributes.ERROR_ATTRIBUTES)
-                }
-                else -> append(value?.toString().orEmpty(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                null -> append(value?.toString().orEmpty(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
             }
         }
-    }
-}
 
-private fun severityRank(severity: String): Int {
-    return when (severity.uppercase()) {
-        "HIGH", "高" -> 0
-        "MEDIUM", "中" -> 1
-        "LOW", "低" -> 2
-        else -> 3
+        private fun fileName(group: ReviewFileGroup): String {
+            return group.displayPath.substringAfterLast('/').ifBlank { group.displayPath }
+        }
+
+        private fun fileMetaAttributes(group: ReviewFileGroup): SimpleTextAttributes {
+            return group.highestSeverity?.let { severityTextAttributes(it) } ?: SimpleTextAttributes.GRAYED_ATTRIBUTES
+        }
     }
 }
 
@@ -1128,8 +1152,8 @@ private fun severityLabel(severity: String): String {
 private fun severityTextAttributes(severity: String): SimpleTextAttributes {
     return when (severity.uppercase()) {
         "HIGH", "高" -> SimpleTextAttributes.ERROR_ATTRIBUTES
-        "LOW", "低" -> SimpleTextAttributes.GRAYED_ATTRIBUTES
-        else -> SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
+        "MEDIUM", "中" -> SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
+        else -> SimpleTextAttributes.GRAYED_ATTRIBUTES
     }
 }
 
