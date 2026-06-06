@@ -4,44 +4,55 @@
     <vendor email="sutao@linux.do" url="https://github.com/sutao1/workLogPlugin">WorkLog Plugin</vendor>
 
     <description><![CDATA[
-    <h1>工作日志插件</h1>
-    <p>一款功能强大的工作日志管理插件，帮助开发者记录每日工作内容。</p>
+    <p>
+      WorkLog helps developers turn Git activity into daily work logs, AI summaries,
+      code review reports, and periodic work reports directly inside IntelliJ-based IDEs.
+    </p>
 
     <br/>
-    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/main-interface.png"
-         alt="主界面截图" width="600" border="0"/>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/worklog-tool-window.png"
+         alt="WorkLog tool window" width="600" border="0"/>
     <br/><br/>
 
-    <h2>主要功能</h2>
+    <h2>Key features</h2>
     <ul>
-      <li> 自动获取指定日期的 Git 提交信息</li>
-      <li> 支持调用大模型 API（OpenAI 格式或自定义格式）自动总结工作内容</li>
-      <li> 可配置是否允许读取代码内容（严格权限控制）</li>
-      <li> 支持 Markdown 格式编辑和存储</li>
-      <li> IDE 关闭时自动提醒填写工作日志</li>
-      <li> 历史日志查看和搜索</li>
-      <li> 定时提醒功能</li>
-      <li> 导出为 HTML/PDF 格式</li>
+      <li>Generate Markdown daily work logs from Git commits and optional local code changes.</li>
+      <li>Create AI summaries through OpenAI-compatible or custom JSON API providers.</li>
+      <li>Review staged changes before commit and review selected historical commits from Git Log.</li>
+      <li>Browse, search, preview, and reopen saved work logs.</li>
+      <li>Generate weekly, monthly, yearly, and custom range work reports from saved logs.</li>
+      <li>Configure API providers, code access permission, review prompts, file filters, storage, and output templates.</li>
+      <li>Export logs and review reports to Markdown, HTML, or PDF.</li>
     </ul>
 
-    <h2>功能演示</h2>
-    <h3>1. AI 智能总结</h3>
-    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/ai-summary.png"
-         alt="AI智能总结" width="600" border="0"/>
-    <br/><br/>
-
-    <h3>2. 多 API 配置管理</h3>
-    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/api-config.png"
-         alt="API配置管理" width="600" border="0"/>
-    <br/><br/>
-
-    <h2>使用方法</h2>
+    <h2>Workflow</h2>
     <ol>
-      <li>打开右侧工具栏的 "WorkLog" 面板</li>
-      <li>选择日期，点击"生成日志"按钮</li>
-      <li>编辑日志内容后保存</li>
-      <li>在设置中配置 AI API（可选）</li>
+      <li>Open the WorkLog tool window from the right sidebar.</li>
+      <li>Select a date and generate a Markdown work log from Git history.</li>
+      <li>Optionally enable AI API access to summarize commits and code changes.</li>
+      <li>Use the code review actions before commit or from Git Log when you need an AI review report.</li>
+      <li>Use Work Statistics to assemble weekly, monthly, yearly, or custom reports.</li>
     </ol>
+
+    <h2>Screenshots</h2>
+    <h3>AI code review result</h3>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/code-review-dialog.png"
+         alt="AI code review result" width="600" border="0"/>
+    <br/><br/>
+
+    <h3>Work statistics and weekly report</h3>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/statistics-report.png"
+         alt="Work statistics report" width="600" border="0"/>
+    <br/><br/>
+
+    <h3>History search and preview</h3>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/history-dialog.png"
+         alt="History search and preview" width="600" border="0"/>
+    <br/><br/>
+
+    <h3>Settings</h3>
+    <img src="https://raw.githubusercontent.com/sutao1/workLogPlugin/main/screenshots/settings-api-config-redacted.png"
+         alt="AI API settings with redacted API key" width="600" border="0"/>
     ]]></description>
 
     <!-- Product and plugin compatibility requirements.

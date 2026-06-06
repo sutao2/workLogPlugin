@@ -23,6 +23,7 @@ import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import javax.swing.Icon
 import javax.swing.*
 
 class WorkLogToolWindow(private val project: Project) : Disposable {
@@ -64,20 +65,9 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         val toolbar = JPanel(BorderLayout(0, 8))
         toolbar.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
-            JBUI.Borders.empty(0, 0, 8, 0)
+            JBUI.Borders.empty(0, 0, 6, 0)
         )
 
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0))
-        rightPanel.add(WorkLogUi.iconButton(AllIcons.General.Settings, "设置") { openSettings() })
-        rightPanel.add(WorkLogUi.iconButton(AllIcons.Actions.More, "更多操作") { button ->
-            showMoreMenu(button)
-        })
-        toolbar.add(
-            WorkLogUi.header("WorkLog", "生成、编辑并复制当前项目工作日志", rightPanel),
-            BorderLayout.NORTH
-        )
-
-        val actionRow = JPanel(BorderLayout(10, 0))
         val datePanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
         datePanel.add(WorkLogUi.mutedLabel("日期"))
         dateComboBox.preferredSize = Dimension(JBUI.scale(164), dateComboBox.preferredSize.height)
@@ -93,13 +83,27 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         })
 
         datePanel.add(dateComboBox)
-        datePanel.add(WorkLogUi.button("生成", true, AllIcons.Actions.Execute) { showGenerateDialog() })
-        actionRow.add(datePanel, BorderLayout.WEST)
 
-        val editActions = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0))
-        editActions.add(WorkLogUi.button("保存", icon = AllIcons.Actions.MenuSaveall) { saveWorkLog() })
-        editActions.add(WorkLogUi.button("复制", icon = AllIcons.Actions.Copy) { copyWorkLog() })
-        actionRow.add(editActions, BorderLayout.EAST)
+        val actionRow = ResponsiveActionRow(
+            datePanel,
+            listOf(
+                ToolbarItem("generate", "生成", "生成工作日志", AllIcons.Actions.Execute, showText = true, primary = true) {
+                    showGenerateDialog()
+                },
+                ToolbarItem("save", "保存", "保存当前工作日志", AllIcons.Actions.MenuSaveall) {
+                    saveWorkLog()
+                },
+                ToolbarItem("copy", "复制", "复制当前工作日志", AllIcons.Actions.Copy) {
+                    copyWorkLog()
+                },
+                ToolbarItem("settings", "设置", "设置", AllIcons.General.Settings) {
+                    openSettings()
+                },
+                ToolbarItem("more", "更多操作", "更多操作", AllIcons.Actions.More) { source ->
+                    showMoreMenu(source)
+                }
+            )
+        )
         toolbar.add(actionRow, BorderLayout.CENTER)
 
         return toolbar
@@ -116,7 +120,7 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     /**
      * 显示更多操作菜单（IDEA 标准样式）
      */
-    private fun showMoreMenu(button: JButton) {
+    private fun showMoreMenu(button: Component) {
         // 创建 Action Group
         val actionGroup = DefaultActionGroup().apply {
             add(object : AnAction("历史记录", "查看历史工作日志", AllIcons.Vcs.History) {
@@ -139,10 +143,149 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
                 DataContext.EMPTY_CONTEXT,
                 JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
                 true
-            )
+        )
 
         // 在按钮下方显示
         popup.showUnderneathOf(button)
+    }
+
+    private fun showOverflowMenu(button: Component, hiddenItems: List<ToolbarItem>) {
+        val actionGroup = DefaultActionGroup().apply {
+            hiddenItems.forEach { item ->
+                if (item.id == "more") {
+                    addSeparator()
+                    add(object : AnAction("历史记录", "查看历史工作日志", AllIcons.Vcs.History) {
+                        override fun actionPerformed(e: AnActionEvent) {
+                            showHistoryDialog()
+                        }
+                    })
+                    add(object : AnAction("统计报告", "查看工作日志统计", AllIcons.Toolwindows.ToolWindowStructure) {
+                        override fun actionPerformed(e: AnActionEvent) {
+                            showStatistics()
+                        }
+                    })
+                } else {
+                    add(object : AnAction(item.text, item.tooltip, item.icon) {
+                        override fun actionPerformed(e: AnActionEvent) {
+                            item.action(button)
+                        }
+                    })
+                }
+            }
+        }
+
+        val popup = JBPopupFactory.getInstance()
+            .createActionGroupPopup(
+                null,
+                actionGroup,
+                DataContext.EMPTY_CONTEXT,
+                JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+                true
+            )
+        popup.showUnderneathOf(button)
+    }
+
+    private data class ToolbarItem(
+        val id: String,
+        val text: String,
+        val tooltip: String,
+        val icon: Icon,
+        val showText: Boolean = false,
+        val primary: Boolean = false,
+        val action: (Component) -> Unit
+    )
+
+    private inner class ResponsiveActionRow(
+        private val leadingComponent: JComponent,
+        private val items: List<ToolbarItem>
+    ) : JPanel(BorderLayout(8, 0)) {
+        private val actionsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
+        private val overflowButton = WorkLogUi.iconButton(AllIcons.Actions.More, "更多操作") { button ->
+            showOverflowMenu(button, hiddenItems)
+        }
+        private var hiddenItems: List<ToolbarItem> = emptyList()
+
+        init {
+            border = JBUI.Borders.empty()
+            add(leadingComponent, BorderLayout.WEST)
+            add(actionsPanel, BorderLayout.CENTER)
+            add(overflowButton, BorderLayout.EAST)
+            overflowButton.isVisible = false
+            addComponentListener(object : java.awt.event.ComponentAdapter() {
+                override fun componentResized(e: java.awt.event.ComponentEvent?) {
+                    rebuild()
+                }
+            })
+            rebuild()
+        }
+
+        override fun addNotify() {
+            super.addNotify()
+            SwingUtilities.invokeLater { rebuild() }
+        }
+
+        private fun rebuild() {
+            val availableWidth = if (width <= 0) {
+                Int.MAX_VALUE
+            } else {
+                (width - insets.left - insets.right - leadingComponent.preferredSize.width - JBUI.scale(8)).coerceAtLeast(0)
+            }
+
+            val mandatory = items.filter { it.primary }
+            val optional = items.filterNot { it.primary }
+            val mandatoryWidth = mandatory.sumOf { preferredButtonWidth(it) }
+            val optionalWidth = optional.sumOf { preferredButtonWidth(it) }
+            val gapWidth = JBUI.scale(4) * (items.size - 1).coerceAtLeast(0)
+
+            val visibleItems = mutableListOf<ToolbarItem>()
+            val hidden = mutableListOf<ToolbarItem>()
+
+            if (mandatoryWidth + optionalWidth + gapWidth <= availableWidth) {
+                visibleItems.addAll(items)
+            } else {
+                visibleItems.addAll(mandatory)
+                var remaining = availableWidth - mandatoryWidth - preferredOverflowWidth() - JBUI.scale(12)
+                optional.forEach { item ->
+                    val itemWidth = preferredButtonWidth(item) + JBUI.scale(4)
+                    if (remaining >= itemWidth) {
+                        visibleItems.add(item)
+                        remaining -= itemWidth
+                    } else {
+                        hidden.add(item)
+                    }
+                }
+            }
+
+            hiddenItems = hidden
+            actionsPanel.removeAll()
+            visibleItems.forEach { actionsPanel.add(createToolbarButton(it)) }
+            overflowButton.isVisible = hiddenItems.isNotEmpty()
+            revalidate()
+            repaint()
+        }
+
+        private fun preferredButtonWidth(item: ToolbarItem): Int {
+            return createToolbarButton(item).preferredSize.width
+        }
+
+        private fun preferredOverflowWidth(): Int {
+            return overflowButton.preferredSize.width
+        }
+
+        private fun createToolbarButton(item: ToolbarItem): JButton {
+            return if (item.showText) {
+                WorkLogUi.button(item.text, primary = item.primary, icon = item.icon) {}.apply {
+                    toolTipText = item.tooltip
+                    addActionListener {
+                        item.action(this)
+                    }
+                }
+            } else {
+                WorkLogUi.iconButton(item.icon, item.tooltip) { button ->
+                    item.action(button)
+                }
+            }
+        }
     }
 
     private fun createEditorPanel(): JPanel {
@@ -282,7 +425,7 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     }
 
     private fun showGenerateDialog() {
-        val dialog = GenerateWorkLogDialog(project)
+        val dialog = GenerateWorkLogDialog(project, getSelectedDateFromComboBox() ?: LocalDate.now())
         if (dialog.showAndGet()) {
             generateWorkLog(dialog.getSelectedDate(), dialog.isIncludeCode(), dialog.isIncludeUncommitted())
         }

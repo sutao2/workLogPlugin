@@ -72,6 +72,7 @@ class CodeReviewService(private val project: Project) {
             title = "代码评审结果",
             content = content,
             files = payload.files,
+            locatorDiff = payload.diff,
             truncated = payload.truncated,
             sourceCommitHashes = emptyList(),
             reviewedCommitSummaries = emptyList()
@@ -102,6 +103,7 @@ class CodeReviewService(private val project: Project) {
             title = "提交代码评审结果 ($commitTitle)",
             content = content,
             files = reviewInput.files,
+            locatorDiff = reviewInput.diff,
             truncated = reviewInput.truncated,
             sourceCommitHashes = listOf(commitHash),
             reviewedCommitSummaries = listOf(commitTitle)
@@ -176,6 +178,7 @@ class CodeReviewService(private val project: Project) {
             title = title,
             content = content,
             files = combinedFiles,
+            locatorDiff = combinedDiff,
             truncated = commitInputs.any { it.third.truncated },
             sourceCommitHashes = commitInputs.map { it.first },
             reviewedCommitSummaries = commitSummaries
@@ -190,12 +193,13 @@ class CodeReviewService(private val project: Project) {
         title: String,
         content: String,
         files: List<String>,
+        locatorDiff: String,
         truncated: Boolean,
         sourceCommitHashes: List<String>,
         reviewedCommitSummaries: List<String>
     ): ReviewResult {
         val normalizedContent = content.trim()
-        val issues = resultParser.parse(normalizedContent, files)
+        val issues = resultParser.parse(normalizedContent, files, locatorDiff)
         val hasFindings = issues.isNotEmpty() || !normalizedContent.contains(ReviewPromptBuilder.NO_FINDINGS_MARKER)
         return ReviewResult(
             title = title,

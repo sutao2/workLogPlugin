@@ -13,15 +13,20 @@ import kotlinx.serialization.json.jsonPrimitive
 internal class ReviewResultParser(
     private val json: Json
 ) {
-    fun parse(content: String, reviewedFiles: List<String>): List<ReviewIssue> {
-        val structuredIssues = parseStructuredReviewIssues(content, reviewedFiles)
+    fun parse(content: String, reviewedFiles: List<String>, locatorDiff: String? = null): List<ReviewIssue> {
+        val validLineCoordinates = locatorDiff?.let { extractLineCoordinates(it, reviewedFiles) }
+        val structuredIssues = parseStructuredReviewIssues(content, reviewedFiles, validLineCoordinates)
         if (structuredIssues.isNotEmpty()) {
             return structuredIssues
         }
-        return parseLegacyReviewIssues(content, reviewedFiles)
+        return parseLegacyReviewIssues(content, reviewedFiles, validLineCoordinates)
     }
 
-    private fun parseStructuredReviewIssues(content: String, reviewedFiles: List<String>): List<ReviewIssue> {
+    private fun parseStructuredReviewIssues(
+        content: String,
+        reviewedFiles: List<String>,
+        validLineCoordinates: Map<String, Set<Int>>?
+    ): List<ReviewIssue> {
         val block = Regex(
             "${ReviewPromptBuilder.STRUCTURED_RESULT_START}\\s*([\\s\\S]*?)\\s*${ReviewPromptBuilder.STRUCTURED_RESULT_END}"
         ).find(content)?.groupValues?.getOrNull(1)?.trim() ?: return emptyList()
@@ -34,7 +39,7 @@ internal class ReviewResultParser(
                     ?: return@mapNotNull null
                 ReviewIssue(
                     filePath = file,
-                    line = issue["line"]?.jsonPrimitive?.intOrNull,
+                    line = sanitizeLine(file, issue["line"]?.jsonPrimitive?.intOrNull, validLineCoordinates),
                     severity = normalizeSeverity(issue.stringValue("severity")),
                     title = issue.stringValue("title").orEmpty().ifBlank { "代码评审问题" },
                     message = issue.stringValue("message").orEmpty()
@@ -45,7 +50,11 @@ internal class ReviewResultParser(
         }
     }
 
-    private fun parseLegacyReviewIssues(content: String, reviewedFiles: List<String>): List<ReviewIssue> {
+    private fun parseLegacyReviewIssues(
+        content: String,
+        reviewedFiles: List<String>,
+        validLineCoordinates: Map<String, Set<Int>>?
+    ): List<ReviewIssue> {
         if (content.contains(ReviewPromptBuilder.NO_FINDINGS_MARKER)) {
             return emptyList()
         }
@@ -71,9 +80,10 @@ internal class ReviewResultParser(
                 if (title.length < 4 || !seen.add(key)) {
                     null
                 } else {
+                    val rawLine = Regex(""":(\d+)\b""").find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
                     ReviewIssue(
                         filePath = file,
-                        line = Regex(""":(\d+)\b""").find(line)?.groupValues?.getOrNull(1)?.toIntOrNull(),
+                        line = sanitizeLine(file, rawLine, validLineCoordinates),
                         severity = normalizeSeverity(line),
                         title = if (title.length > 120) title.take(117) + "..." else title,
                         message = line
@@ -82,6 +92,30 @@ internal class ReviewResultParser(
             }
             .take(20)
             .toList()
+    }
+
+    private fun extractLineCoordinates(diff: String, reviewedFiles: List<String>): Map<String, Set<Int>> {
+        val markerRegex = Regex("""^>>\s+(.+):(\d+)\s*$""")
+        return diff.lineSequence()
+            .mapNotNull { line ->
+                val match = markerRegex.matchEntire(line) ?: return@mapNotNull null
+                val file = normalizeReviewedFile(match.groupValues[1], reviewedFiles) ?: return@mapNotNull null
+                val number = match.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+                file to number
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, lines) -> lines.toSet() }
+    }
+
+    private fun sanitizeLine(
+        file: String,
+        line: Int?,
+        validLineCoordinates: Map<String, Set<Int>>?
+    ): Int? {
+        if (line == null || validLineCoordinates == null) {
+            return line
+        }
+        return line.takeIf { validLineCoordinates[file]?.contains(it) == true }
     }
 
     private fun normalizeReviewedFile(file: String, reviewedFiles: List<String>): String? {

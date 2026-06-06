@@ -1,6 +1,8 @@
 package com.worklog.services.git
 
 internal object GitDiffAnnotator {
+    private val hunkHeaderRegex = Regex("""@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@.*""")
+
     fun annotateWithLineMarkers(diff: String): String {
         var currentFile: String? = null
         var newLineNumber: Int? = null
@@ -13,19 +15,25 @@ internal object GitDiffAnnotator {
                         newLineNumber = null
                         appendLine(line)
                     }
+                    line.startsWith("+++ /dev/null") -> {
+                        currentFile = null
+                        newLineNumber = null
+                        appendLine(line)
+                    }
                     line.startsWith("@@") -> {
-                        newLineNumber = Regex("""\+(\d+)""").find(line)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                        val hunk = hunkHeaderRegex.matchEntire(line)
+                        newLineNumber = hunk?.groupValues?.getOrNull(1)?.toIntOrNull()
                         appendLine(line)
                     }
                     currentFile != null && newLineNumber != null && line.startsWith("+") && !line.startsWith("+++") -> {
                         appendLine(">> ${currentFile}:${newLineNumber}")
                         appendLine(line)
-                        newLineNumber = newLineNumber?.plus(1)
+                        newLineNumber = newLineNumber!! + 1
                     }
                     currentFile != null && newLineNumber != null && line.startsWith(" ") -> {
                         appendLine(">> ${currentFile}:${newLineNumber}")
                         appendLine(line)
-                        newLineNumber = newLineNumber?.plus(1)
+                        newLineNumber = newLineNumber!! + 1
                     }
                     line.startsWith("-") && !line.startsWith("---") -> {
                         appendLine(line)

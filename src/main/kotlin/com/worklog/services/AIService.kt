@@ -105,10 +105,10 @@ class AIService(private val project: Project) : Disposable {
                         val errorJson = json.parseToJsonElement(responseBody).jsonObject
                         val errorMessage = errorJson["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
                             ?: errorJson["message"]?.jsonPrimitive?.content
-                            ?: responseBody
+                            ?: "响应体无法解析"
                         "API 调用失败 (${response.code}): $errorMessage"
                     } catch (e: Exception) {
-                        "API 调用失败 (${response.code}): ${response.message}\n$responseBody"
+                        "API 调用失败 (${response.code}): ${response.message}"
                     }
                 } else {
                     "API 调用失败 (${response.code}): ${response.message}"
@@ -249,7 +249,8 @@ class AIService(private val project: Project) : Disposable {
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw RuntimeException("API 调用失败: ${response.code} ${response.message}\n${response.body?.string()}")
+                    response.body?.close()
+                    throw RuntimeException("API 调用失败: ${response.code} ${response.message}")
                 }
 
                 val responseBody = response.body?.string() ?: throw RuntimeException("响应体为空")

@@ -20,7 +20,10 @@ import javax.swing.*
 /**
  * 生成工作日志对话框
  */
-class GenerateWorkLogDialog(private val project: Project) : DialogWrapper(project) {
+class GenerateWorkLogDialog(
+    private val project: Project,
+    initialDate: LocalDate = LocalDate.now()
+) : DialogWrapper(project) {
 
     private val dateSpinner: JSpinner
     private val includeCodeCheckBox: JBCheckBox
@@ -31,11 +34,10 @@ class GenerateWorkLogDialog(private val project: Project) : DialogWrapper(projec
         title = "生成工作日志"
 
         // 初始化日期选择器
-        val today = LocalDate.now()
         val dateModel = SpinnerDateModel(
-            java.sql.Date.valueOf(today),
+            java.sql.Date.valueOf(initialDate),
             null,
-            java.sql.Date.valueOf(today),
+            null,
             java.util.Calendar.DAY_OF_MONTH
         )
         dateSpinner = JSpinner(dateModel)
