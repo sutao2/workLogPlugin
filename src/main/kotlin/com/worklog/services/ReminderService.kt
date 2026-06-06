@@ -4,6 +4,8 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.worklog.settings.AppSettingsState
@@ -124,9 +126,14 @@ class ReminderService(private val project: Project) : Disposable {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                 // 触发生成日志的操作
                 notification.expire()
-                com.intellij.openapi.actionSystem.ActionManager.getInstance()
-                    .getAction("com.worklog.actions.GenerateWorkLogAction")
-                    ?.actionPerformed(e)
+                val action = ActionManager.getInstance().getAction("com.worklog.actions.GenerateWorkLogAction") ?: return
+                ActionManager.getInstance().tryToExecute(
+                    action,
+                    e.inputEvent,
+                    e.inputEvent?.component,
+                    ActionPlaces.UNKNOWN,
+                    true
+                )
             }
         })
 

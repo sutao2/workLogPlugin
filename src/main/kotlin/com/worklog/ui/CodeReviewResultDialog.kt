@@ -141,7 +141,7 @@ class CodeReviewResultDialog(
         tree.cellRenderer = ReviewTreeRenderer()
         tree.border = JBUI.Borders.empty()
         tree.emptyText.text = "没有评审结果"
-        TreeSpeedSearch(tree)
+        TreeSpeedSearch.installOn(tree)
         tree.addTreeSelectionListener {
             val node = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
             handleReviewTreeSelection(node?.userObject as? ReviewTreeItem)

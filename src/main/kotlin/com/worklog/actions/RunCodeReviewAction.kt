@@ -94,10 +94,6 @@ class RunCodeReviewAction : DumbAwareAction("代码评审", "评审当前暂存�
         e.presentation.isEnabled = !isRunning(project)
     }
 
-    override fun displayTextInToolbar(): Boolean {
-        return false
-    }
-
     private fun showResult(project: Project, result: ReviewExecutionResult) {
         result.infoMessage?.let {
             Messages.showInfoMessage(project, it, "代码评审")

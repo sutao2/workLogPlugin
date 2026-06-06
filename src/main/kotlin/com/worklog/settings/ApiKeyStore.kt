@@ -2,6 +2,7 @@ package com.worklog.settings
 
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.Credentials
+import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
 
 object ApiKeyStore {
@@ -19,6 +20,30 @@ object ApiKeyStore {
     }
 
     private fun attributes(configId: String): CredentialAttributes {
-        return CredentialAttributes("$SERVICE_NAME:$configId")
+        val serviceName = generateServiceName(SERVICE_NAME, configId)
+        val attributesClass = CredentialAttributes::class.java
+        val newConstructor = runCatching {
+            attributesClass.getConstructor(
+                String::class.java,
+                String::class.java,
+                Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType
+            )
+        }.getOrNull()
+
+        val attributes = if (newConstructor != null) {
+            newConstructor.newInstance(serviceName, configId, false, false)
+        } else {
+            attributesClass
+                .getConstructor(
+                    String::class.java,
+                    String::class.java,
+                    Class::class.java,
+                    Boolean::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType
+                )
+                .newInstance(serviceName, configId, ApiKeyStore::class.java, false, false)
+        }
+        return attributes as CredentialAttributes
     }
 }
