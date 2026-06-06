@@ -40,10 +40,10 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     private val commitCountLabel = JBLabel("提交: 0")
     private val wordCountLabel = JBLabel("字数: 0")
 
-    private val panel = JPanel(BorderLayout(0, 8))
+    private val panel = JPanel(BorderLayout(0, 10))
 
     init {
-        panel.border = JBUI.Borders.empty(8)
+        panel.border = JBUI.Borders.empty(10)
         initUI()
         loadAvailableDates()
     }
@@ -63,20 +63,47 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     }
 
     private fun createToolbar(): JPanel {
-        val toolbar = JPanel(BorderLayout())
+        val toolbar = JPanel(BorderLayout(0, 10))
         toolbar.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
-            JBUI.Borders.empty(0, 0, 8, 0)
+            JBUI.Borders.empty(0, 2, 10, 2)
         )
 
-        // 左侧面板 - 主要操作按钮
-        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+        val titleRow = JPanel(BorderLayout(12, 0))
+        val titlePanel = JPanel(BorderLayout(0, 3))
+        titlePanel.add(JBLabel("WorkLog").apply {
+            font = font.deriveFont(Font.BOLD, 17f)
+        }, BorderLayout.NORTH)
+        titlePanel.add(JBLabel("记录、生成并整理项目工作日志").apply {
+            foreground = JBColor.GRAY
+        }, BorderLayout.CENTER)
+        titleRow.add(titlePanel, BorderLayout.WEST)
 
-        // 日期标签
-        leftPanel.add(JBLabel("日期:"))
+        // 右侧面板 - 设置和更多按钮
+        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0))
+
+        // 设置按钮（使用 IDEA 标准齿轮图标）
+        val settingsButton = createIconButton(AllIcons.General.Settings, "设置") { openSettings() }
+        rightPanel.add(settingsButton)
+
+        // 更多操作按钮（使用 IDEA 标准三点图标）
+        val moreButton = createIconButton(AllIcons.Actions.More, "更多操作") { button ->
+            showMoreMenu(button)
+        }
+        rightPanel.add(moreButton)
+
+        titleRow.add(rightPanel, BorderLayout.EAST)
+        toolbar.add(titleRow, BorderLayout.NORTH)
+
+        val actionRow = JPanel(BorderLayout(10, 0))
+        val datePanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0))
+
+        datePanel.add(JBLabel("日期").apply {
+            foreground = JBColor.GRAY
+        })
 
         // 日期下拉框（可编辑，点击可弹出日期选择器）
-        dateComboBox.preferredSize = Dimension(150, dateComboBox.preferredSize.height)
+        dateComboBox.preferredSize = Dimension(JBUI.scale(164), dateComboBox.preferredSize.height)
         dateComboBox.isEditable = true
         dateComboBox.addActionListener { loadWorkLog() }
 
@@ -89,75 +116,52 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
             }
         })
 
-        leftPanel.add(dateComboBox)
+        datePanel.add(dateComboBox)
 
         // 分隔符
-        leftPanel.add(Box.createHorizontalStrut(5))
+        datePanel.add(Box.createHorizontalStrut(2))
 
         // 生成日志按钮
-        leftPanel.add(createButton("生成日志") { showGenerateDialog() })
+        datePanel.add(createButton("生成日志", true) { showGenerateDialog() })
 
-        // 保存按钮
-        leftPanel.add(createButton("保存") { saveWorkLog() })
+        actionRow.add(datePanel, BorderLayout.WEST)
 
-        // 复制按钮
-        leftPanel.add(createButton("复制") { copyWorkLog() })
+        val editActions = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0))
+        editActions.add(createButton("保存") { saveWorkLog() })
+        editActions.add(createButton("复制") { copyWorkLog() })
+        actionRow.add(editActions, BorderLayout.EAST)
 
-        toolbar.add(leftPanel, BorderLayout.WEST)
-
-        // 右侧面板 - 设置和更多按钮
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 0))
-
-        // 设置按钮（使用 IDEA 标准齿轮图标）
-        val settingsButton = JButton(AllIcons.General.Settings)
-        settingsButton.toolTipText = "设置"
-        settingsButton.isBorderPainted = false
-        settingsButton.isContentAreaFilled = false
-        settingsButton.isFocusPainted = false
-        settingsButton.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        settingsButton.preferredSize = Dimension(28, 28)
-        settingsButton.addActionListener { openSettings() }
-
-        // 添加鼠标悬停效果
-        settingsButton.addMouseListener(object : java.awt.event.MouseAdapter() {
-            override fun mouseEntered(e: java.awt.event.MouseEvent) {
-                settingsButton.isContentAreaFilled = true
-            }
-            override fun mouseExited(e: java.awt.event.MouseEvent) {
-                settingsButton.isContentAreaFilled = false
-            }
-        })
-        rightPanel.add(settingsButton)
-
-        // 更多操作按钮（使用 IDEA 标准三点图标）
-        val moreButton = JButton(AllIcons.Actions.More)
-        moreButton.toolTipText = "更多操作"
-        moreButton.isBorderPainted = false
-        moreButton.isContentAreaFilled = false
-        moreButton.isFocusPainted = false
-        moreButton.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        moreButton.preferredSize = Dimension(28, 28)
-        moreButton.addActionListener { showMoreMenu(moreButton) }
-
-        // 添加鼠标悬停效果
-        moreButton.addMouseListener(object : java.awt.event.MouseAdapter() {
-            override fun mouseEntered(e: java.awt.event.MouseEvent) {
-                moreButton.isContentAreaFilled = true
-            }
-            override fun mouseExited(e: java.awt.event.MouseEvent) {
-                moreButton.isContentAreaFilled = false
-            }
-        })
-        rightPanel.add(moreButton)
-
-        toolbar.add(rightPanel, BorderLayout.EAST)
+        toolbar.add(actionRow, BorderLayout.CENTER)
 
         return toolbar
     }
 
-    private fun createButton(text: String, action: () -> Unit): JButton {
+    private fun createIconButton(icon: Icon, tooltip: String, action: (JButton) -> Unit): JButton {
+        val button = JButton(icon)
+        button.toolTipText = tooltip
+        button.isBorderPainted = false
+        button.isContentAreaFilled = false
+        button.isFocusPainted = false
+        button.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        button.preferredSize = Dimension(28, 28)
+        button.addActionListener { action(button) }
+        button.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseEntered(e: java.awt.event.MouseEvent) {
+                button.isContentAreaFilled = true
+            }
+            override fun mouseExited(e: java.awt.event.MouseEvent) {
+                button.isContentAreaFilled = false
+            }
+        })
+        return button
+    }
+
+    private fun createButton(text: String, primary: Boolean = false, action: () -> Unit): JButton {
         val button = JButton(text)
-        button.margin = JBUI.insets(2, 10)
+        button.margin = if (primary) JBUI.insets(3, 14) else JBUI.insets(3, 10)
+        button.isFocusPainted = false
+        button.isDefaultCapable = primary
+        button.font = button.font.deriveFont(if (primary) Font.BOLD else Font.PLAIN)
         button.addActionListener { action() }
         return button
     }
@@ -203,14 +207,15 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
     }
 
     private fun createEditorPanel(): JPanel {
-        val panel = JPanel(BorderLayout(0, 6))
+        val panel = JPanel(BorderLayout(0, 8))
         panel.border = JBUI.Borders.empty()
 
         val header = JPanel(BorderLayout())
         val titleLabel = JBLabel("工作日志")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 15f)
         val hintLabel = JBLabel("Markdown 内容会保存到项目工作日志目录")
         hintLabel.foreground = JBColor.GRAY
+        header.border = JBUI.Borders.empty(0, 2, 0, 2)
         header.add(titleLabel, BorderLayout.WEST)
         header.add(hintLabel, BorderLayout.EAST)
         panel.add(header, BorderLayout.NORTH)
@@ -219,7 +224,8 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         editorArea.wrapStyleWord = true
         editorArea.font = Font("Monospaced", Font.PLAIN, 13)
         editorArea.tabSize = 4
-        editorArea.margin = JBUI.insets(10)
+        editorArea.margin = JBUI.insets(14)
+        editorArea.background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
 
         // 字数统计
         editorArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
@@ -229,17 +235,20 @@ class WorkLogToolWindow(private val project: Project) : Disposable {
         })
 
         val scrollPane = JBScrollPane(editorArea)
-        scrollPane.border = BorderFactory.createLineBorder(JBColor.border())
+        scrollPane.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(1)
+        )
         panel.add(scrollPane, BorderLayout.CENTER)
 
         return panel
     }
 
     private fun createStatusBar(): JPanel {
-        val statusBar = JPanel(FlowLayout(FlowLayout.LEFT, 10, 0))
+        val statusBar = JPanel(FlowLayout(FlowLayout.LEFT, 12, 0))
         statusBar.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor.border()),
-            JBUI.Borders.empty(6, 0, 0, 0)
+            JBUI.Borders.empty(8, 2, 0, 2)
         )
         statusLabel.foreground = JBColor.GRAY
         commitCountLabel.foreground = JBColor.GRAY

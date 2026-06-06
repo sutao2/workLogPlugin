@@ -60,16 +60,26 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(800, 600)
-        panel.border = JBUI.Borders.empty(8)
+        val panel = JPanel(BorderLayout(0, 12))
+        panel.preferredSize = Dimension(860, 640)
+        panel.border = JBUI.Borders.empty(12)
+
+        val headerPanel = JPanel(BorderLayout(0, 4))
+        headerPanel.add(JBLabel("工作统计").apply {
+            font = font.deriveFont(Font.BOLD, 17f)
+        }, BorderLayout.NORTH)
+        headerPanel.add(JBLabel("汇总工作日志，生成周报、月报、年报或自定义范围报告。").apply {
+            foreground = JBColor.GRAY
+        }, BorderLayout.CENTER)
 
         // 创建标签页
         tabbedPane.addTab("本周统计", createWeeklyPanel())
         tabbedPane.addTab("本月统计", createMonthlyPanel())
         tabbedPane.addTab("年度统计", createYearlyPanel())
         tabbedPane.addTab("自定义范围", createCustomRangePanel())
+        tabbedPane.border = JBUI.Borders.empty(4, 0, 0, 0)
 
+        panel.add(headerPanel, BorderLayout.NORTH)
         panel.add(tabbedPane, BorderLayout.CENTER)
         return panel
     }
@@ -428,22 +438,29 @@ class StatisticsDialog(private val project: Project) : DialogWrapper(project) {
 
     private fun wrapStatsPage(content: JComponent): JPanel {
         val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.empty(8)
+        panel.border = JBUI.Borders.empty(14, 10, 10, 10)
+        content.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(12)
+        )
         panel.add(content, BorderLayout.CENTER)
         return panel
     }
 
     private fun createActionBar(): JPanel {
-        return JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+        return JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+            border = JBUI.Borders.empty(0, 0, 10, 0)
+        }
     }
 
     private fun createReportTextArea(): JTextArea {
         return JTextArea().apply {
             isEditable = false
-            font = Font("Monospaced", Font.PLAIN, 12)
+            font = Font("Monospaced", Font.PLAIN, 13)
             lineWrap = true
             wrapStyleWord = true
-            margin = JBUI.insets(10)
+            margin = JBUI.insets(14)
+            background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
         }
     }
 

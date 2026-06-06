@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Font
 import javax.swing.*
 import javax.swing.table.AbstractTableModel
 
@@ -123,15 +124,19 @@ class SettingsConfigurable : Configurable {
         // 立即创建第一个标签页（用户最可能查看的）
         tabbedPane.setComponentAt(0, createApiConfigPanel())
 
+        tabbedPane.border = JBUI.Borders.empty(4, 0, 0, 0)
+
         settingsPanel = JPanel(BorderLayout())
-        settingsPanel?.border = JBUI.Borders.empty(8)
+        settingsPanel?.border = JBUI.Borders.empty(12)
         settingsPanel?.add(tabbedPane, BorderLayout.CENTER)
 
         return settingsPanel!!
     }
 
     private fun createCodeAccessPanel(): JPanel {
-        return wrapSettingsPage(
+        return createSectionPage(
+            "代码访问权限",
+            "控制 AI 是否可以读取代码变更内容，并决定是否记住你的选择。",
             FormBuilder.createFormBuilder()
             .addComponent(allowCodeAccessCheckBox)
             .addComponent(rememberCodeAccessCheckBox)
@@ -147,7 +152,9 @@ class SettingsConfigurable : Configurable {
         reviewUserPromptArea.lineWrap = true
         reviewUserPromptArea.wrapStyleWord = true
 
-        return wrapSettingsPage(
+        return createSectionPage(
+            "代码评审",
+            "配置提交前 AI 评审、diff 长度限制，以及评审提示词模板。",
             FormBuilder.createFormBuilder()
             .addComponent(reviewEnabledCheckBox)
             .addComponent(reviewAutoRunCheckBox)
@@ -163,7 +170,9 @@ class SettingsConfigurable : Configurable {
     }
 
     private fun createReminderPanel(): JPanel {
-        return wrapSettingsPage(
+        return createSectionPage(
+            "提醒设置",
+            "配置定时提醒和关闭 IDE 时的日志填写提醒。",
             FormBuilder.createFormBuilder()
             .addComponent(reminderEnabledCheckBox)
             .addLabeledComponent(JBLabel("提醒时间 (HH:mm):"), reminderTimeField, 1, false)
@@ -174,7 +183,9 @@ class SettingsConfigurable : Configurable {
     }
 
     private fun createStoragePanel(): JPanel {
-        return wrapSettingsPage(
+        return createSectionPage(
+            "存储和导出",
+            "设置日志保存位置和默认导出格式。",
             FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("默认导出格式:"), exportFormatComboBox, 1, false)
             .addLabeledComponent(JBLabel("存储路径:"), storageLocationField, 1, false)
@@ -187,7 +198,9 @@ class SettingsConfigurable : Configurable {
     private fun createPromptPanel(): JPanel {
         val systemPromptScrollPane = JBScrollPane(systemPromptArea)
         val userPromptScrollPane = JBScrollPane(userPromptTemplateArea)
-        return wrapSettingsPage(
+        return createSectionPage(
+            "提示词模板",
+            "调整 AI 总结工作日志时使用的系统提示词和用户提示词。",
             FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("系统提示词:"), systemPromptScrollPane, 1, true)
             .addLabeledComponent(JBLabel("用户提示词模板:"), userPromptScrollPane, 1, true)
@@ -200,7 +213,9 @@ class SettingsConfigurable : Configurable {
     private fun createTemplatePanel(): JPanel {
         val outputTemplateScrollPane = JBScrollPane(workLogOutputTemplateArea)
         val examplesScrollPane = JBScrollPane(templateExamplesArea)
-        return wrapSettingsPage(
+        return createSectionPage(
+            "输出模板",
+            "自定义最终生成的 Markdown 工作日志结构和可复制示例。",
             FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("工作日志输出模板:"), outputTemplateScrollPane, 1, true)
             .addComponent(helpLabel("可用变量：{{date}}, {{ai_summary}}, {{git_commits}}, {{code_changes}}。条件语法：{{#if hasCodeAccess}}...{{/if}}"))
@@ -220,7 +235,9 @@ class SettingsConfigurable : Configurable {
         val extensionsScrollPane = JBScrollPane(excludedFileExtensionsArea)
         val directoriesScrollPane = JBScrollPane(excludedDirectoriesArea)
 
-        return wrapSettingsPage(
+        return createSectionPage(
+            "文件过滤",
+            "排除不适合进入 AI diff 的文件类型、目录和大文件。",
             FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("排除的文件扩展名:"), extensionsScrollPane, 1, true)
             .addComponent(helpLabel("用逗号分隔，例如：ckpt,pth,bin,pb。这些类型不会被包含在 Git diff 中。"))
@@ -375,17 +392,48 @@ class SettingsConfigurable : Configurable {
         loadSettings(AppSettingsState.getInstance())
     }
 
+    private fun createSectionPage(title: String, description: String, content: JPanel): JPanel {
+        val page = JPanel(BorderLayout(0, 14))
+
+        val header = JPanel(BorderLayout(0, 4))
+        header.add(JBLabel(title).apply {
+            font = font.deriveFont(Font.BOLD, 16f)
+        }, BorderLayout.NORTH)
+        header.add(JBLabel(description).apply {
+            foreground = JBColor.GRAY
+        }, BorderLayout.CENTER)
+        page.add(header, BorderLayout.NORTH)
+
+        val contentPanel = JPanel(BorderLayout())
+        contentPanel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(14)
+        )
+        content.border = JBUI.Borders.empty()
+        contentPanel.add(content, BorderLayout.CENTER)
+        page.add(contentPanel, BorderLayout.CENTER)
+
+        return wrapSettingsPage(page)
+    }
+
     private fun wrapSettingsPage(content: JPanel): JPanel {
         val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.empty(8)
-        content.border = JBUI.Borders.empty()
+        panel.border = JBUI.Borders.empty(14, 16)
+        content.border = JBUI.Borders.empty(4, 2)
         panel.add(content, BorderLayout.CENTER)
         return panel
     }
 
     private fun helpLabel(text: String): JBLabel {
-        return JBLabel("<html><small>$text</small></html>").apply {
+        return JBLabel("<html><body style='width: 560px'><small>$text</small></body></html>").apply {
             foreground = JBColor.GRAY
+        }
+    }
+
+    private fun createSettingsButton(text: String): JButton {
+        return JButton(text).apply {
+            margin = JBUI.insets(3, 10)
+            isFocusPainted = false
         }
     }
 
@@ -393,33 +441,34 @@ class SettingsConfigurable : Configurable {
      * 创建 API 配置面板（表格形式）
      */
     private fun createApiConfigPanel(): JPanel {
-        val panel = JPanel(BorderLayout(0, 8))
+        val panel = JPanel(BorderLayout(0, 10))
 
         // 配置表格
         apiConfigTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-        apiConfigTable.rowHeight = JBUI.scale(26)
+        apiConfigTable.rowHeight = JBUI.scale(28)
         val scrollPane = JBScrollPane(apiConfigTable)
         scrollPane.preferredSize = Dimension(600, 200)
+        scrollPane.border = BorderFactory.createLineBorder(JBColor.border())
 
         // 按钮面板
         val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
 
-        val addButton = JButton("添加")
+        val addButton = createSettingsButton("添加")
         addButton.addActionListener { addApiConfig() }
 
-        val editButton = JButton("编辑")
+        val editButton = createSettingsButton("编辑")
         editButton.addActionListener { editApiConfig() }
 
-        val deleteButton = JButton("删除")
+        val deleteButton = createSettingsButton("删除")
         deleteButton.addActionListener { deleteApiConfig() }
 
-        val copyButton = JButton("复制")
+        val copyButton = createSettingsButton("复制")
         copyButton.addActionListener { copyApiConfig() }
 
-        val enableButton = JButton("启用")
+        val enableButton = createSettingsButton("启用")
         enableButton.addActionListener { enableApiConfig() }
 
-        val testButton = JButton("测试连接")
+        val testButton = createSettingsButton("测试连接")
         testButton.addActionListener { testSelectedApiConfig() }
 
         buttonPanel.add(addButton)
@@ -443,7 +492,11 @@ class SettingsConfigurable : Configurable {
             }
         })
 
-        return wrapSettingsPage(panel)
+        return createSectionPage(
+            "AI API 配置",
+            "管理 OpenAI 兼容或自定义格式的 API 配置，并选择当前启用项。",
+            panel
+        )
     }
 
     private fun addApiConfig() {

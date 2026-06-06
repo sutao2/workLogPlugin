@@ -39,23 +39,43 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout(0, 8))
-        panel.preferredSize = Dimension(800, 600)
-        panel.border = JBUI.Borders.empty(8)
+        val panel = JPanel(BorderLayout(0, 12))
+        panel.preferredSize = Dimension(860, 620)
+        panel.border = JBUI.Borders.empty(12)
+
+        val headerPanel = JPanel(BorderLayout(0, 4))
+        headerPanel.add(JBLabel("历史工作日志").apply {
+            font = font.deriveFont(Font.BOLD, 17f)
+        }, BorderLayout.NORTH)
+        headerPanel.add(JBLabel("搜索、预览并打开已保存的 Markdown 工作日志。").apply {
+            foreground = JBColor.GRAY
+        }, BorderLayout.CENTER)
 
         // 顶部搜索栏
         val searchPanel = JPanel(BorderLayout(8, 0))
-        searchPanel.add(JBLabel("搜索:"), BorderLayout.WEST)
+        searchPanel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(10)
+        )
+        searchPanel.add(JBLabel("搜索").apply {
+            font = font.deriveFont(Font.BOLD)
+        }, BorderLayout.WEST)
         searchField.addActionListener {
             filterDates()
         }
         searchPanel.add(searchField, BorderLayout.CENTER)
         val searchButton = JButton("搜索")
+        searchButton.margin = JBUI.insets(3, 12)
+        searchButton.isFocusPainted = false
         searchButton.addActionListener {
             filterDates()
         }
         searchPanel.add(searchButton, BorderLayout.EAST)
-        panel.add(searchPanel, BorderLayout.NORTH)
+
+        val topPanel = JPanel(BorderLayout(0, 10))
+        topPanel.add(headerPanel, BorderLayout.NORTH)
+        topPanel.add(searchPanel, BorderLayout.CENTER)
+        panel.add(topPanel, BorderLayout.NORTH)
 
         // 中间分割面板
         val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT)
@@ -85,22 +105,34 @@ class HistoryViewDialog(private val project: Project) : DialogWrapper(project) {
             }
         }
 
+        val listPanel = JPanel(BorderLayout(0, 8))
+        listPanel.border = JBUI.Borders.empty(0, 0, 0, 10)
+        listPanel.add(JBLabel("日志日期").apply {
+            font = font.deriveFont(Font.BOLD, 15f)
+        }, BorderLayout.NORTH)
         val listScrollPane = JBScrollPane(dateList)
         listScrollPane.border = BorderFactory.createLineBorder(JBColor.border())
-        listScrollPane.preferredSize = Dimension(250, 0)
-        splitPane.leftComponent = listScrollPane
+        listScrollPane.preferredSize = Dimension(260, 0)
+        listPanel.add(listScrollPane, BorderLayout.CENTER)
+        splitPane.leftComponent = listPanel
 
         // 右侧预览区域
         previewArea.isEditable = false
         previewArea.lineWrap = true
         previewArea.wrapStyleWord = true
-        previewArea.margin = JBUI.insets(10)
+        previewArea.margin = JBUI.insets(14)
         previewArea.font = Font("Monospaced", Font.PLAIN, 13)
+        previewArea.background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
+        val previewPanel = JPanel(BorderLayout(0, 8))
+        previewPanel.add(JBLabel("日志预览").apply {
+            font = font.deriveFont(Font.BOLD, 15f)
+        }, BorderLayout.NORTH)
         val previewScrollPane = JBScrollPane(previewArea)
         previewScrollPane.border = BorderFactory.createLineBorder(JBColor.border())
-        splitPane.rightComponent = previewScrollPane
+        previewPanel.add(previewScrollPane, BorderLayout.CENTER)
+        splitPane.rightComponent = previewPanel
 
-        splitPane.dividerLocation = JBUI.scale(250)
+        splitPane.dividerLocation = JBUI.scale(280)
         panel.add(splitPane, BorderLayout.CENTER)
 
         return panel

@@ -33,14 +33,18 @@ class ShutdownReminderDialog(private val project: Project) : DialogWrapper(proje
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout(0, 10))
-        panel.border = JBUI.Borders.empty(10)
-        panel.preferredSize = Dimension(400, 120)
+        val panel = JPanel(BorderLayout(0, 12))
+        panel.border = JBUI.Borders.empty(16)
+        panel.preferredSize = Dimension(460, 150)
 
         // 主要内容
-        val contentPanel = JPanel(BorderLayout(0, 4))
+        val contentPanel = JPanel(BorderLayout(0, 6))
+        contentPanel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(14)
+        )
         val titleLabel = JBLabel("今日工作日志尚未填写")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 15f)
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 17f)
         val messageLabel = JBLabel("可以现在生成日志，也可以打开编辑器手动填写。日期: ${LocalDate.now()}")
         messageLabel.foreground = JBColor.GRAY
         contentPanel.add(titleLabel, BorderLayout.NORTH)
@@ -49,6 +53,7 @@ class ShutdownReminderDialog(private val project: Project) : DialogWrapper(proje
         panel.add(contentPanel, BorderLayout.CENTER)
 
         // 底部选项
+        dontRemindCheckBox.border = JBUI.Borders.empty(0, 2, 0, 0)
         panel.add(dontRemindCheckBox, BorderLayout.SOUTH)
 
         return panel

@@ -3,6 +3,7 @@ package com.worklog.ui
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
@@ -74,8 +75,11 @@ class ApiConfigDialog(
         customRequestTemplateArea.lineWrap = true
         customRequestTemplateArea.wrapStyleWord = true
         customRequestTemplateArea.font = Font("Monospaced", Font.PLAIN, 12)
+        customRequestTemplateArea.margin = JBUI.insets(10)
 
         // API Key 显示/隐藏切换
+        showApiKeyButton.margin = JBUI.insets(3, 10)
+        showApiKeyButton.isFocusPainted = false
         showApiKeyButton.addActionListener {
             apiKeyVisible = !apiKeyVisible
             if (apiKeyVisible) {
@@ -91,9 +95,24 @@ class ApiConfigDialog(
     }
 
     override fun createCenterPanel(): JComponent {
+        val root = JPanel(BorderLayout(0, 14))
+        root.border = JBUI.Borders.empty(16)
+        root.preferredSize = Dimension(600, 430)
+
+        val headerPanel = JPanel(BorderLayout(0, 4))
+        headerPanel.add(JBLabel(if (existingConfig == null) "添加 API 配置" else "编辑 API 配置").apply {
+            font = font.deriveFont(Font.BOLD, 17f)
+        }, BorderLayout.NORTH)
+        headerPanel.add(JBLabel("配置服务商、模型、密钥和自定义请求格式。").apply {
+            foreground = JBColor.GRAY
+        }, BorderLayout.CENTER)
+        root.add(headerPanel, BorderLayout.NORTH)
+
         val panel = JPanel(GridBagLayout())
-        panel.border = JBUI.Borders.empty(10)
-        panel.preferredSize = Dimension(560, 390)
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(14)
+        )
         val gbc = GridBagConstraints()
         gbc.insets = Insets(5, 0, 5, 8)
         gbc.anchor = GridBagConstraints.WEST
@@ -203,6 +222,7 @@ class ApiConfigDialog(
         gbc.weighty = 1.0
         val scrollPane = JBScrollPane(customRequestTemplateArea)
         scrollPane.preferredSize = Dimension(400, 100)
+        scrollPane.border = BorderFactory.createLineBorder(JBColor.border())
         panel.add(scrollPane, gbc)
 
         row++
@@ -222,7 +242,8 @@ class ApiConfigDialog(
         gbc.weightx = 1.0
         panel.add(customResponseJsonPathField, gbc)
 
-        return panel
+        root.add(panel, BorderLayout.CENTER)
+        return root
     }
 
     /**

@@ -33,6 +33,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.GridLayout
 import java.awt.datatransfer.StringSelection
 import java.awt.event.ActionEvent
 import java.awt.event.KeyAdapter
@@ -87,18 +88,63 @@ class CodeReviewResultDialog(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(860, 520)
-        panel.border = JBUI.Borders.empty(8)
+        panel.preferredSize = Dimension(900, 560)
+        panel.border = JBUI.Borders.empty(10)
+
+        panel.add(createSummaryPanel(), BorderLayout.NORTH)
 
         val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT)
         splitPane.border = BorderFactory.createEmptyBorder()
-        splitPane.dividerSize = JBUI.scale(7)
+        splitPane.dividerSize = JBUI.scale(8)
         splitPane.leftComponent = createResultTreePanel()
         splitPane.rightComponent = createReportPanel()
-        splitPane.dividerLocation = JBUI.scale(300)
+        splitPane.dividerLocation = JBUI.scale(310)
         splitPane.resizeWeight = 0.0
         panel.add(splitPane, BorderLayout.CENTER)
 
+        return panel
+    }
+
+    private fun createSummaryPanel(): JComponent {
+        val panel = JPanel(BorderLayout(14, 0))
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+            JBUI.Borders.empty(0, 2, 12, 2)
+        )
+
+        val titlePanel = JPanel(BorderLayout(0, 4))
+        titlePanel.add(JBLabel(result.title).apply {
+            font = font.deriveFont(Font.BOLD, 16f)
+        }, BorderLayout.NORTH)
+        titlePanel.add(JBLabel("${reviewScopeLabel()} · ${if (result.truncated) "Diff 已截断" else "Diff 完整"}").apply {
+            foreground = JBColor.GRAY
+        }, BorderLayout.CENTER)
+
+        val metricsPanel = JPanel(GridLayout(1, 3, 8, 0))
+        metricsPanel.add(createMetricPanel("问题", result.issues.size.toString(), result.hasFindings))
+        metricsPanel.add(createMetricPanel("文件", result.reviewedFiles.size.toString(), false))
+        metricsPanel.add(createMetricPanel("提交", result.sourceCommitHashes.size.toString(), false))
+
+        panel.add(titlePanel, BorderLayout.CENTER)
+        panel.add(metricsPanel, BorderLayout.EAST)
+        return panel
+    }
+
+    private fun createMetricPanel(label: String, value: String, warning: Boolean): JPanel {
+        val panel = JPanel(BorderLayout(0, 2))
+        panel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(7, 12)
+        )
+        panel.add(JBLabel(value).apply {
+            font = font.deriveFont(Font.BOLD, 16f)
+            foreground = if (warning) severityColor("HIGH") else JBColor.foreground()
+            horizontalAlignment = JBLabel.CENTER
+        }, BorderLayout.NORTH)
+        panel.add(JBLabel(label).apply {
+            foreground = JBColor.GRAY
+            horizontalAlignment = JBLabel.CENTER
+        }, BorderLayout.CENTER)
         return panel
     }
 
@@ -130,10 +176,10 @@ class CodeReviewResultDialog(
         })
         expandTree(tree)
 
-        val header = JPanel(BorderLayout(0, 2))
-        header.border = JBUI.Borders.empty(0, 2, 8, 2)
+        val header = JPanel(BorderLayout(0, 3))
+        header.border = JBUI.Borders.empty(0, 2, 10, 2)
         val titleLabel = JBLabel("代码评审")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 15f)
 
         val scope = if (result.sourceCommitHashes.isEmpty()) "暂存区" else "${result.sourceCommitHashes.size} 个提交"
         val metaLabel = JBLabel("${result.issues.size} 问题 · ${result.reviewedFiles.size} 文件 · $scope")
@@ -142,34 +188,42 @@ class CodeReviewResultDialog(
         header.add(metaLabel, BorderLayout.CENTER)
 
         val panel = JPanel(BorderLayout())
-        panel.border = JBUI.Borders.empty(2, 0, 0, 8)
+        panel.border = JBUI.Borders.empty(12, 0, 0, 10)
         panel.add(header, BorderLayout.NORTH)
         panel.add(JBScrollPane(tree).apply {
-            border = JBUI.Borders.empty()
+            border = BorderFactory.createLineBorder(JBColor.border())
         }, BorderLayout.CENTER)
         return panel
     }
 
     private fun createReportPanel(): JComponent {
-        val panel = JPanel(BorderLayout(0, 8))
+        val panel = JPanel(BorderLayout(0, 10))
+        panel.border = JBUI.Borders.empty(12, 0, 0, 0)
 
-        val toolbar = JPanel(BorderLayout())
-        toolbar.border = JBUI.Borders.empty(0, 0, 8, 0)
+        val toolbar = JPanel(BorderLayout(10, 0))
+        toolbar.border = JBUI.Borders.empty(0, 2, 0, 2)
         openFileButton = JButton("打开源码").apply {
             icon = AllIcons.Actions.Find
             isEnabled = false
+            margin = JBUI.insets(3, 10)
+            isFocusPainted = false
             addActionListener { openSelectedFile() }
         }
-        toolbar.add(openFileButton, BorderLayout.WEST)
-        toolbar.add(JBLabel("问题会定位并高亮到编辑器源码行").apply {
+
+        val titlePanel = JPanel(BorderLayout(0, 3))
+        titlePanel.add(JBLabel("问题详情").apply {
+            font = font.deriveFont(Font.BOLD, 15f)
+        }, BorderLayout.NORTH)
+        titlePanel.add(JBLabel("选择左侧问题后，会定位并高亮到编辑器源码行").apply {
             foreground = JBColor.GRAY
-            horizontalAlignment = JBLabel.RIGHT
-        }, BorderLayout.EAST)
+        }, BorderLayout.CENTER)
+        toolbar.add(titlePanel, BorderLayout.CENTER)
+        toolbar.add(openFileButton, BorderLayout.EAST)
         if (result.truncated) {
             toolbar.add(JBLabel("Diff 已截断").apply {
                 foreground = JBColor.GRAY
                 icon = AllIcons.General.Warning
-            }, BorderLayout.CENTER)
+            }, BorderLayout.WEST)
         }
         panel.add(toolbar, BorderLayout.NORTH)
 
@@ -178,27 +232,32 @@ class CodeReviewResultDialog(
     }
 
     private fun createIssueDetailPanel(): JComponent {
-        val panel = JPanel(BorderLayout(0, 8))
+        val panel = JPanel(BorderLayout(0, 10))
         panel.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor.border()),
-            JBUI.Borders.empty(12, 4, 4, 4)
+            BorderFactory.createLineBorder(JBColor.border()),
+            JBUI.Borders.empty(12)
         )
 
         issueTitleLabel = JBLabel(if (result.hasFindings) "选择一个问题查看详情" else "未发现明显问题").apply {
-            font = font.deriveFont(Font.BOLD, 15f)
+            font = font.deriveFont(Font.BOLD, 16f)
         }
         issueMetaLabel = JBLabel("${result.reviewedFiles.size} 个文件 · ${result.issues.size} 个结构化问题").apply {
             foreground = JBColor.GRAY
         }
 
         val titlePanel = JPanel(BorderLayout(0, 5))
-        titlePanel.border = JBUI.Borders.empty(0, 0, 6, 0)
+        titlePanel.border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+            JBUI.Borders.empty(0, 0, 10, 0)
+        )
         titlePanel.add(issueTitleLabel, BorderLayout.NORTH)
         titlePanel.add(issueMetaLabel, BorderLayout.CENTER)
         panel.add(titlePanel, BorderLayout.NORTH)
 
         issueMessageArea = createReadOnlyTextArea("问题说明会显示在这里。")
-        panel.add(JBScrollPane(issueMessageArea), BorderLayout.CENTER)
+        panel.add(JBScrollPane(issueMessageArea).apply {
+            border = BorderFactory.createLineBorder(JBColor.border())
+        }, BorderLayout.CENTER)
 
         return panel
     }
@@ -208,7 +267,7 @@ class CodeReviewResultDialog(
             isEditable = false
             lineWrap = true
             wrapStyleWord = true
-            border = JBUI.Borders.empty(12)
+            border = JBUI.Borders.empty(14)
             background = JBColor.namedColor("EditorPane.background", JBColor.PanelBackground)
             foreground = JBColor.foreground()
             font = font.deriveFont(13f)
